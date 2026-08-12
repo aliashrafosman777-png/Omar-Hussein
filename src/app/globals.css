@@ -1,0 +1,509 @@
+@import "tailwindcss";
+
+/* ============================================
+   OMAR HUSSEIN PHOTOGRAPHY — Design System
+   Brand: Bold · Artistic · Streamlined
+   ============================================ */
+
+@theme inline {
+  /* ── Brand Colors ── */
+  --color-deep-blue: #05345F;
+  --color-burgundy: #643F45;
+  --color-crimson: #942322;
+
+  /* ── Surface Colors ── */
+  --color-surface: #0A0A0B;
+  --color-surface-dim: #070708;
+  --color-surface-bright: #1A1A1E;
+  --color-surface-container: #111113;
+  --color-surface-container-high: #1E1E21;
+  --color-surface-elevated: #252528;
+
+  /* ── Text Colors ── */
+  --color-warm-white: #F5F0EB;
+  --color-warm-white-muted: #B8B2AA;
+  --color-charcoal: #6B6B6F;
+
+  /* ── Font Family ── */
+  --font-brand: "Century Gothic", "Avenir Next", "Montserrat", sans-serif;
+  --font-sans: var(--font-montserrat, "Century Gothic", "Avenir Next", "Montserrat", sans-serif);
+
+  /* ── Spacing ── */
+  --spacing-section: clamp(60px, 8vw, 120px);
+  --spacing-container-max: 1160px;
+
+  /* ── Border Radius ── */
+  --radius-full: 9999px;
+
+  /* ── Animations ── */
+  --animate-fade-up: fade-up 0.6s ease-out forwards;
+  --animate-fade-in: fade-in 0.6s ease-out forwards;
+}
+
+/* ── Keyframes ── */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes grain-shift {
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  10% {
+    transform: translate(-5%, -10%);
+  }
+
+  30% {
+    transform: translate(3%, -15%);
+  }
+
+  50% {
+    transform: translate(12%, 9%);
+  }
+
+  70% {
+    transform: translate(9%, 4%);
+  }
+
+  90% {
+    transform: translate(-1%, 7%);
+  }
+}
+
+/* ── Base Styles ── */
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 7rem;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-warm-white);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: var(--color-crimson);
+  color: var(--color-warm-white);
+}
+
+/* ── Custom Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-elevated);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-charcoal);
+}
+
+/* ── Grain Texture Overlay ── */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  animation: grain-shift 8s steps(10) infinite;
+  mix-blend-mode: overlay;
+}
+
+/* ── Atmospheric Glow Utilities ── */
+.glow-crimson {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(148, 35, 34, 0.12) 0%, rgba(0, 0, 0, 0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glow-blue {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(5, 52, 95, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glow-burgundy {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(100, 63, 69, 0.1) 0%, rgba(0, 0, 0, 0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Glass Morphism Utilities ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+}
+
+.glass-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+/* ── Nav Glass Pills ── */
+/* Each nav link and the logo get their own individual glass pill */
+.nav-glass-pill {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nav-glass-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.nav-glass-pill-active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 20px rgba(148, 35, 34, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ── Contact Details Glass Card ── */
+/* Prominent glass card for the contact sidebar, matching Cretoify reference */
+.contact-details-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.contact-details-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+}
+
+.contact-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: all 0.3s ease;
+}
+
+.contact-detail-row:last-child {
+  border-bottom: none;
+}
+
+.contact-detail-row:hover {
+  padding-left: 4px;
+}
+
+.contact-detail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.contact-detail-icon-crimson {
+  background: rgba(148, 35, 34, 0.12);
+  border: 1px solid rgba(148, 35, 34, 0.18);
+  color: #942322;
+}
+
+.contact-detail-icon-blue {
+  background: rgba(5, 52, 95, 0.15);
+  border: 1px solid rgba(5, 52, 95, 0.22);
+  color: #5b9bd5;
+}
+
+.contact-detail-icon-burgundy {
+  background: rgba(100, 63, 69, 0.15);
+  border: 1px solid rgba(100, 63, 69, 0.22);
+  color: #b5888e;
+}
+
+/* ── Liquid Glass Button System ── */
+/* Adapted from hossamyehia reference, replacing gold with Omar's brand colors */
+
+.liquid-glass-btn-primary,
+.liquid-glass-btn-secondary,
+.liquid-glass-btn-blue {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 9999px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 14px 28px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Primary — Crimson Red Glow */
+.liquid-glass-btn-primary {
+  background: rgba(148, 35, 34, 0.08);
+  border: 1px solid rgba(148, 35, 34, 0.15);
+  border-top: 1px solid rgba(148, 35, 34, 0.3);
+  color: var(--color-warm-white);
+  box-shadow:
+    inset 0 1px 1px rgba(148, 35, 34, 0.15),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.3),
+    0 4px 16px rgba(148, 35, 34, 0.15);
+}
+
+.liquid-glass-btn-primary:hover {
+  background: rgba(148, 35, 34, 0.15);
+  border-color: rgba(148, 35, 34, 0.25);
+  border-top-color: rgba(148, 35, 34, 0.5);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 2px rgba(148, 35, 34, 0.25),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.4),
+    0 8px 24px rgba(148, 35, 34, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Secondary — White/Silver Glow */
+.liquid-glass-btn-secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--color-warm-white);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.08),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.2),
+    0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.liquid-glass-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  border-top-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.12),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.3),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+}
+
+/* Blue — Deep Blue Glow */
+.liquid-glass-btn-blue {
+  background: rgba(5, 52, 95, 0.1);
+  border: 1px solid rgba(5, 52, 95, 0.2);
+  border-top: 1px solid rgba(5, 52, 95, 0.35);
+  color: var(--color-warm-white);
+  box-shadow:
+    inset 0 1px 1px rgba(5, 52, 95, 0.15),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.3),
+    0 4px 16px rgba(5, 52, 95, 0.15);
+}
+
+.liquid-glass-btn-blue:hover {
+  background: rgba(5, 52, 95, 0.18);
+  border-color: rgba(5, 52, 95, 0.3);
+  border-top-color: rgba(5, 52, 95, 0.5);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 2px rgba(5, 52, 95, 0.25),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.4),
+    0 8px 24px rgba(5, 52, 95, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Shared Button States */
+.liquid-glass-btn-primary:active,
+.liquid-glass-btn-secondary:active,
+.liquid-glass-btn-blue:active {
+  transform: translateY(0);
+}
+
+.liquid-glass-btn-primary:focus-visible,
+.liquid-glass-btn-secondary:focus-visible,
+.liquid-glass-btn-blue:focus-visible {
+  outline: 2px solid var(--color-crimson);
+  outline-offset: 2px;
+}
+
+.liquid-glass-btn-primary:disabled,
+.liquid-glass-btn-secondary:disabled,
+.liquid-glass-btn-blue:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Text Gradient Utility ── */
+.text-gradient-brand {
+  background: linear-gradient(135deg, var(--color-warm-white) 0%, var(--color-crimson) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-blue-red {
+  background: linear-gradient(135deg, var(--color-deep-blue) 30%, var(--color-crimson) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Focus Visible ── */
+:focus-visible {
+  outline: 2px solid var(--color-crimson);
+  outline-offset: 2px;
+}
+
+/* ── Skip to Content ── */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-crimson);
+  color: var(--color-warm-white);
+  font-weight: 600;
+  border-radius: 0 0 0.5rem 0.5rem;
+  transition: top 0.2s ease;
+}
+
+.skip-to-content:focus {
+  top: 0;
+  outline: none;
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .grain-overlay {
+    animation: none;
+  }
+}
+
+/* ── Masonry Grid ── */
+.masonry-grid {
+  columns: 3;
+  column-gap: 1.25rem;
+}
+
+.masonry-grid>* {
+  break-inside: avoid;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+  .masonry-grid {
+    columns: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .masonry-grid {
+    columns: 1;
+  }
+}
+
+/* ── Custom Dark Red Select Dropdown Styling ── */
+select option {
+  background-color: #1c0809;
+  color: #f5f0eb;
+  padding: 10px 14px;
+}
+
+select option[value=""] {
+  color: #e05452;
+  font-weight: 600;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #942322 !important;
+  color: #ffffff !important;
+}

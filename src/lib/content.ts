@@ -1,7 +1,6 @@
 // ============================================
 // OMAR HUSSEIN PHOTOGRAPHY — Site Content
 // Central typed content file
-// Replace TODO placeholders with real data
 // ============================================
 
 export const SITE_CONFIG = {
@@ -9,8 +8,8 @@ export const SITE_CONFIG = {
   title: "Omar Hussein Photography — Bold. Artistic. Cinematic.",
   description:
     "Photography that captures art in everything — turning every glimpse into a masterpiece that tells your story. Bold, artistic, and cinematic visual storytelling by Omar Hussein.",
-  url: "https://omarhussein.photography", // TODO: Replace with actual domain
-  ogImage: "/og-image.jpg", // TODO: Replace with actual OG image
+  url: "https://omarhussein.photography",
+  ogImage: "/media/omar-portrait.jpeg",
 } as const;
 
 export const NAV_LINKS = [
@@ -89,14 +88,26 @@ export const CONTACT_CONTENT = {
     "$5,000+",
     "Let's discuss",
   ],
-  // TODO: Replace with actual contact details
   email: "hello@omarhussein.photography",
   phone: "+20 109 639 3822",
+  phoneHref: "+201096393822",
   location: "Cairo, Egypt",
   socials: [
-    { platform: "Instagram", url: "#", handle: "@omarhussein" },
-    { platform: "Behance", url: "#", handle: "omarhussein" },
-    { platform: "LinkedIn", url: "#", handle: "omarhussein" },
+    {
+      platform: "Instagram",
+      url: "https://www.instagram.com/omarhussein/",
+      handle: "@omarhussein",
+    },
+    {
+      platform: "Behance",
+      url: "https://www.behance.net/omarhussein",
+      handle: "omarhussein",
+    },
+    {
+      platform: "LinkedIn",
+      url: "https://www.linkedin.com/in/omarhussein/",
+      handle: "omarhussein",
+    },
   ],
 } as const;
 
@@ -106,7 +117,7 @@ export const COURSES_CONTENT = {
     "Step into a new era of creative learning — fast, focused, and built for real results. Our photography courses go straight to the point, giving you practical, hands-on experience that matches today's market needs. Each program is crafted to help you think like a creative, work like a professional, and stay ahead of the industry.",
   courses: [
     {
-      title: "Portrait Photography Masterclass",
+      title: "Makeup Photography with Your Phone",
       description:
         "Master the art of portrait photography — from lighting setups and posing techniques to post-processing workflows that elevate every shot.",
       highlights: [
@@ -115,7 +126,7 @@ export const COURSES_CONTENT = {
         "Color grading & retouching in Lightroom/Photoshop",
         "Building a portrait portfolio",
       ],
-      duration: "6 Weeks",
+      duration: "One Day",
       level: "Beginner to Intermediate",
     },
   ],

@@ -1,8 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# large media source files
+# large media source files outside the deployable public directory
 /media/
-/public/media/courses/
 
 # dependencies
 /node_modules
@@ -36,6 +35,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # database
 /data/

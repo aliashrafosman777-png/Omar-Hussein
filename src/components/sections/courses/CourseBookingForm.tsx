@@ -114,7 +114,7 @@ export function CourseBookingForm() {
       {/* Success message */}
       {status === "success" && (
         <AnimatedSection>
-          <div className="glass-card rounded-xl p-5 border-green-400/20 flex items-start gap-3 mb-6">
+          <div className="glass-card rounded-xl p-5 border-green-400/20 flex items-start gap-3 mb-6" role="status">
             <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
             <div>
               <p className="text-sm font-medium text-green-400">{statusMessage}</p>
@@ -148,6 +148,8 @@ export function CourseBookingForm() {
             onChange={handleChange}
             className={`${inputBase} ${errors.fullName ? "!border-red-400/40" : ""}`}
             placeholder="Full Name"
+            maxLength={200}
+            autoComplete="name"
             required
             aria-label="Full Name"
             aria-invalid={!!errors.fullName}
@@ -165,6 +167,8 @@ export function CourseBookingForm() {
             onChange={handleChange}
             className={`${inputBase} ${errors.email ? "!border-red-400/40" : ""}`}
             placeholder="Email"
+            maxLength={320}
+            autoComplete="email"
             required
             aria-label="Email"
             aria-invalid={!!errors.email}
@@ -182,6 +186,8 @@ export function CourseBookingForm() {
             onChange={handleChange}
             className={inputBase}
             placeholder="Phone Number"
+            maxLength={30}
+            autoComplete="tel"
             aria-label="Phone Number"
           />
         </div>
@@ -227,6 +233,7 @@ export function CourseBookingForm() {
             rows={4}
             className={`${inputBase} resize-none`}
             placeholder="Message"
+            maxLength={2000}
             aria-label="Message"
           />
         </div>
@@ -246,7 +253,7 @@ export function CourseBookingForm() {
 
         {/* Error status */}
         {status === "error" && (
-          <p className="text-sm text-red-400 flex items-center gap-2 justify-center">
+          <p className="text-sm text-red-400 flex items-center gap-2 justify-center" role="alert">
             <AlertCircle className="h-4 w-4" aria-hidden="true" />
             {statusMessage}
           </p>

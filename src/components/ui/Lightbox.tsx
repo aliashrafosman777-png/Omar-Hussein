@@ -4,6 +4,7 @@ import React, { useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Project } from "@/lib/projects";
+import Image from "next/image";
 
 interface LightboxProps {
   project: Project | null;
@@ -62,6 +63,9 @@ export function Lightbox({
       {isOpen && project && (
         <motion.div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4 md:p-8"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lightbox-title"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -79,6 +83,7 @@ export function Lightbox({
             onClick={onClose}
             className="fixed top-6 right-6 z-50 w-12 h-12 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/[0.12] flex items-center justify-center text-warm-white transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer shadow-lg"
             aria-label="Close lightbox"
+            autoFocus
           >
             <X className="h-6 w-6" />
           </button>
@@ -104,10 +109,13 @@ export function Lightbox({
                   className="flex items-center justify-center max-h-full max-w-full cursor-grab active:cursor-grabbing select-none"
                 >
                   {currentImage ? (
-                    <img
+                    <Image
                       src={currentImage}
                       alt={`${project.title} — image ${currentIndex + 1}`}
-                      className="max-h-[75vh] md:max-h-[82vh] w-auto max-w-full object-contain rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/[0.08]"
+                      width={2000}
+                      height={3000}
+                      sizes="100vw"
+                      className="max-h-[75vh] md:max-h-[82vh] w-auto h-auto max-w-full object-contain rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/[0.08]"
                       draggable={false}
                     />
                   ) : (
@@ -124,7 +132,10 @@ export function Lightbox({
             <div className="flex flex-col sm:flex-row items-center justify-between w-full max-w-3xl mt-4 gap-4 px-4 py-3 rounded-2xl bg-white/[0.04] border border-white/[0.08] backdrop-blur-md">
               {/* Title & category */}
               <div className="text-center sm:text-left">
-                <h3 className="text-base font-bold text-warm-white tracking-tight">
+                <h3
+                  id="lightbox-title"
+                  className="text-base font-bold text-warm-white tracking-tight"
+                >
                   {project.title}
                 </h3>
                 <span className="text-[11px] uppercase tracking-[0.18em] text-crimson font-medium">

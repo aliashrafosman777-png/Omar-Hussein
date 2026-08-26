@@ -14,6 +14,9 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
  * corrupting the bcrypt hash's $ characters.
  */
 function getPasswordHash(): string | null {
+  const environmentHash = process.env.ADMIN_PASSWORD_HASH?.trim();
+  if (environmentHash) return environmentHash;
+
   try {
     const hashPath = path.join(process.cwd(), "data", "admin-hash.txt");
     if (!fs.existsSync(hashPath)) return null;
@@ -36,7 +39,7 @@ export async function verifyCredentials(
 
   if (!ADMIN_EMAIL || !passwordHash) {
     console.error(
-      "Admin auth not configured (ADMIN_EMAIL env var or data/admin-hash.txt missing)."
+      "Admin auth not configured (ADMIN_EMAIL and ADMIN_PASSWORD_HASH or data/admin-hash.txt are required)."
     );
     return false;
   }

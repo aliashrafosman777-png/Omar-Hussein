@@ -26,6 +26,7 @@ export default function WorkPage() {
           <SectionHeading
             label="Portfolio"
             title="My Work"
+            level="h1"
             description="Each project is a visual story — bold, intentional, and crafted with cinematic precision. Click any image to explore."
           />
         </AnimatedSection>

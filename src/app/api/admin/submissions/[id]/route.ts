@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySession } from "@/lib/session";
 import { getSubmissionById, updateSubmissionStatus } from "@/lib/db";
 import type { SubmissionStatus } from "@/lib/db-schema";
+import { readJsonObject } from "@/lib/request";
 
 const VALID_STATUSES: SubmissionStatus[] = [
   "New",
@@ -9,6 +10,29 @@ const VALID_STATUSES: SubmissionStatus[] = [
   "Contacted",
   "Archived",
 ];
+const VALID_TYPES = ["course", "contact"] as const;
+
+function parseSubmissionId(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function isSubmissionType(
+  value: unknown
+): value is (typeof VALID_TYPES)[number] {
+  return (
+    typeof value === "string" &&
+    VALID_TYPES.includes(value as (typeof VALID_TYPES)[number])
+  );
+}
+
+function isSubmissionStatus(value: unknown): value is SubmissionStatus {
+  return (
+    typeof value === "string" &&
+    VALID_STATUSES.includes(value as SubmissionStatus)
+  );
+}
 
 /**
  * GET /api/admin/submissions/[id]?type=course|contact
@@ -27,13 +51,10 @@ export async function GET(
   }
 
   const { id: idStr } = await params;
-  const id = parseInt(idStr, 10);
-  const type = request.nextUrl.searchParams.get("type") as
-    | "course"
-    | "contact"
-    | null;
+  const id = parseSubmissionId(idStr);
+  const type = request.nextUrl.searchParams.get("type");
 
-  if (!type || isNaN(id)) {
+  if (!isSubmissionType(type) || id === null) {
     return NextResponse.json(
       { success: false, message: "Invalid request." },
       { status: 400 }
@@ -69,20 +90,19 @@ export async function PATCH(
   }
 
   const { id: idStr } = await params;
-  const id = parseInt(idStr, 10);
-  const body = await request.json();
-  const { type, status } = body;
-
-  if (!type || !status || isNaN(id)) {
+  const id = parseSubmissionId(idStr);
+  const body = await readJsonObject(request);
+  if (!body) {
     return NextResponse.json(
-      { success: false, message: "Invalid request." },
+      { success: false, message: "A valid JSON request body is required." },
       { status: 400 }
     );
   }
+  const { type, status } = body;
 
-  if (!VALID_STATUSES.includes(status)) {
+  if (!isSubmissionType(type) || !isSubmissionStatus(status) || id === null) {
     return NextResponse.json(
-      { success: false, message: "Invalid status value." },
+      { success: false, message: "Invalid request." },
       { status: 400 }
     );
   }

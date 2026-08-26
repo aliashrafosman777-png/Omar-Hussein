@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { insertContactInquiry } from "@/lib/db";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { CONTACT_CONTENT } from "@/lib/content";
+import {
+  escapeHtml,
+  isValidEmail,
+  readJsonObject,
+  sanitizeText,
+} from "@/lib/request";
+import {
+  getEmailSettings,
+  isEmailDeliveryEnabled,
+  sendEmail,
+} from "@/lib/email";
+
+const VALID_SHOOT_TYPES = new Set<string>(CONTACT_CONTENT.shootTypes);
+const VALID_BUDGET_RANGES = new Set<string>(CONTACT_CONTENT.budgetRanges);
 
 /**
  * Contact form API route handler.
@@ -17,11 +32,22 @@ export async function POST(request: NextRequest) {
           success: false,
           message: "Too many requests. Please try again later.",
         },
-        { status: 429 }
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil((rl.retryAfterMs ?? 0) / 1000)),
+          },
+        }
       );
     }
 
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) {
+      return NextResponse.json(
+        { success: false, message: "A valid JSON request body is required." },
+        { status: 400 }
+      );
+    }
 
     // Honeypot check — reject silently if filled
     if (body._honey) {
@@ -33,13 +59,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Sanitize inputs
-    const name = sanitize(body.name, 200);
-    const email = sanitize(body.email, 320);
-    const phone = sanitize(body.phone, 30);
-    const shootType = sanitize(body.shootType, 200);
-    const preferredDate = sanitize(body.preferredDate, 20);
-    const budgetRange = sanitize(body.budgetRange, 100);
-    const message = sanitize(body.message, 5000);
+    const name = sanitizeText(body.name, 200);
+    const email = sanitizeText(body.email, 320);
+    const phone = sanitizeText(body.phone, 30);
+    const shootType = sanitizeText(body.shootType, 200);
+    const preferredDate = sanitizeText(body.preferredDate, 20);
+    const budgetRange = sanitizeText(body.budgetRange, 100);
+    const message = sanitizeText(body.message, 5000);
 
     // Server-side validation
     const errors: string[] = [];
@@ -48,14 +74,23 @@ export async function POST(request: NextRequest) {
     }
     if (!email) {
       errors.push("Email is required.");
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (!isValidEmail(email)) {
       errors.push("A valid email address is required.");
     }
     if (!message) {
       errors.push("Message is required.");
     }
-    if (!body.consent) {
+    if (body.consent !== true) {
       errors.push("Consent is required.");
+    }
+    if (shootType && !VALID_SHOOT_TYPES.has(shootType)) {
+      errors.push("The selected shoot type is not available.");
+    }
+    if (budgetRange && !VALID_BUDGET_RANGES.has(budgetRange)) {
+      errors.push("The selected budget range is not available.");
+    }
+    if (preferredDate && !isValidDateInput(preferredDate)) {
+      errors.push("A valid preferred date is required.");
     }
 
     if (errors.length > 0) {
@@ -66,75 +101,113 @@ export async function POST(request: NextRequest) {
     }
 
     // Save to database
-    insertContactInquiry({
-      name,
-      email,
-      phone,
-      shootType,
-      preferredDate,
-      budgetRange,
-      message,
-    });
-
-    // Check if email provider is configured
-    const emailProvider = process.env.CONTACT_EMAIL_PROVIDER;
-    const resendApiKey = process.env.RESEND_API_KEY;
-    const contactTo = process.env.CONTACT_TO_EMAIL;
-
-    if (!emailProvider || !resendApiKey) {
-      // Development mode — no email provider configured
-      console.log("📧 [Dev Mode] Contact form submission saved to database.");
-
-      return NextResponse.json({
-        success: true,
-        dev: true,
-        message:
-          "Thank you! Your inquiry has been received. I will get back to you soon.",
+    let inquiryReference = `fallback-${crypto.randomUUID()}`;
+    let stored = false;
+    try {
+      const inquiry = insertContactInquiry({
+        name,
+        email,
+        phone,
+        shootType,
+        preferredDate,
+        budgetRange,
+        message,
       });
+      inquiryReference = String(inquiry.id);
+      stored = true;
+    } catch (error) {
+      console.error(
+        "Contact storage is unavailable; attempting email delivery:",
+        error instanceof Error ? error.name : "UnknownError"
+      );
     }
 
-    // Send email via Resend (or other provider)
-    if (emailProvider === "resend") {
-      const resendResponse = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: "Omar Hussein Photography <noreply@omarhussein.photography>",
-          to: [contactTo || "hello@omarhussein.photography"],
-          subject: `New Inquiry from ${name}`,
-          html: `
-            <h2>New Photography Inquiry</h2>
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            ${phone ? `<p><strong>Phone:</strong> ${phone}</p>` : ""}
-            ${shootType ? `<p><strong>Shoot Type:</strong> ${shootType}</p>` : ""}
-            ${preferredDate ? `<p><strong>Preferred Date:</strong> ${preferredDate}</p>` : ""}
-            ${budgetRange ? `<p><strong>Budget Range:</strong> ${budgetRange}</p>` : ""}
-            <p><strong>Message:</strong></p>
-            <p>${message.replace(/\n/g, "<br>")}</p>
-          `,
-        }),
-      });
+    let deliveryWarning = !stored;
+    let adminNotificationDelivered = false;
+    if (isEmailDeliveryEnabled()) {
+      const safeName = escapeHtml(name);
+      const safeEmail = escapeHtml(email);
+      const safePhone = escapeHtml(phone);
+      const safeShootType = escapeHtml(shootType);
+      const safePreferredDate = escapeHtml(preferredDate);
+      const safeBudgetRange = escapeHtml(budgetRange);
+      const safeMessage = escapeHtml(message).replace(/\n/g, "<br>");
 
-      if (!resendResponse.ok) {
-        console.error("Resend API error:", await resendResponse.text());
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to send your inquiry. Please try again later.",
-          },
-          { status: 500 }
+      try {
+        const settings = getEmailSettings();
+        const results = await Promise.allSettled([
+          sendEmail({
+            to: settings.notificationTo,
+            replyTo: email,
+            idempotencyKey: `contact-${inquiryReference}-notification`,
+            subject: `New Inquiry from ${name.replace(/[\r\n]/g, " ")}`,
+            text: [
+              "New Photography Inquiry",
+              `Name: ${name}`,
+              `Email: ${email}`,
+              phone ? `Phone: ${phone}` : "",
+              shootType ? `Shoot Type: ${shootType}` : "",
+              preferredDate ? `Preferred Date: ${preferredDate}` : "",
+              budgetRange ? `Budget Range: ${budgetRange}` : "",
+              "",
+              message,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            html: `
+            <h2>New Photography Inquiry</h2>
+            <p><strong>Name:</strong> ${safeName}</p>
+            <p><strong>Email:</strong> ${safeEmail}</p>
+            ${safePhone ? `<p><strong>Phone:</strong> ${safePhone}</p>` : ""}
+            ${safeShootType ? `<p><strong>Shoot Type:</strong> ${safeShootType}</p>` : ""}
+            ${safePreferredDate ? `<p><strong>Preferred Date:</strong> ${safePreferredDate}</p>` : ""}
+            ${safeBudgetRange ? `<p><strong>Budget Range:</strong> ${safeBudgetRange}</p>` : ""}
+            <p><strong>Message:</strong></p>
+            <p>${safeMessage}</p>
+          `,
+          }),
+          sendEmail({
+            to: email,
+            replyTo: settings.replyTo,
+            idempotencyKey: `contact-${inquiryReference}-confirmation`,
+            subject: "We received your photography inquiry",
+            text: `Hello ${name},\n\nThank you for getting in touch. Your photography inquiry has been received, and Omar will reply as soon as possible.\n\nOmar Hussein Photography`,
+            html: `<p>Hello ${safeName},</p><p>Thank you for getting in touch. Your photography inquiry has been received, and Omar will reply as soon as possible.</p><p>Omar Hussein Photography</p>`,
+          }),
+        ]);
+        adminNotificationDelivered = results[0]?.status === "fulfilled";
+        deliveryWarning =
+          deliveryWarning ||
+          results.some((result) => result.status === "rejected");
+        if (deliveryWarning) {
+          console.error("One or more contact emails could not be delivered.");
+        }
+      } catch (error) {
+        deliveryWarning = true;
+        console.error(
+          "Contact email delivery failed:",
+          error instanceof Error ? error.name : "UnknownError"
         );
       }
+    } else {
+      console.info("Contact submission saved; email delivery is disabled.");
+    }
+
+    if (!stored && !adminNotificationDelivered) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Your inquiry could not be delivered. Please try again.",
+        },
+        { status: 503 }
+      );
     }
 
     return NextResponse.json({
       success: true,
+      deliveryWarning: deliveryWarning || undefined,
       message:
-        "Thank you! Your inquiry has been sent. I will get back to you soon.",
+        "Thank you! Your inquiry has been received. I will get back to you soon.",
     });
   } catch (error) {
     console.error("Contact API error:", error);
@@ -148,7 +221,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function sanitize(value: unknown, maxLen: number): string {
-  if (typeof value !== "string") return "";
-  return value.trim().slice(0, maxLen);
+function isValidDateInput(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
 }

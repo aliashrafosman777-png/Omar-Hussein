@@ -46,8 +46,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: SITE_CONFIG.ogImage,
-        width: 1200,
-        height: 630,
+        width: 854,
+        height: 1280,
         alt: `${SITE_CONFIG.name} — Bold. Artistic. Cinematic.`,
       },
     ],
@@ -82,7 +82,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   };
 
   return (
-    <html lang="en" className={`${montserrat.variable} h-full`}>
+    <html
+      lang="en"
+      className={`${montserrat.variable} h-full`}
+      data-scroll-behavior="smooth"
+    >
       <head>
         <script
           type="application/ld+json"
@@ -102,4 +106,3 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     </html>
   );
 }
-

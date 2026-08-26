@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Eye, EyeOff, Lock, Mail, Loader2, AlertCircle } from "lucide-react";
 
 type FormStatus = "idle" | "loading" | "error";
@@ -165,12 +166,12 @@ export default function AdminLoginPage() {
 
         {/* Back to site */}
         <p className="text-center text-xs text-charcoal mt-6">
-          <a
+          <Link
             href="/"
             className="hover:text-warm-white-muted transition-colors"
           >
             ← Back to website
-          </a>
+          </Link>
         </p>
       </div>
     </div>

@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
+import { SITE_CONFIG } from "@/lib/content";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = "https://omarhussein.photography"; // TODO: Replace with actual domain
+  const baseUrl = SITE_CONFIG.url;
 
   return [
     {
@@ -21,6 +22,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date(),
       changeFrequency: "monthly",
       priority: 0.7,
+    },
+    {
+      url: `${baseUrl}/courses`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.8,
     },
     {
       url: `${baseUrl}/contact`,

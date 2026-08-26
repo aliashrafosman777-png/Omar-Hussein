@@ -1,5 +1,6 @@
 import "server-only";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import type {
   CourseBooking,
@@ -8,13 +9,21 @@ import type {
   SubmissionListParams,
   SubmissionListResult,
   DashboardCounts,
+  WorkItem,
+  WorkCategory,
+  WorkListParams,
+  WorkListResult,
+  SubmissionReply,
 } from "./db-schema";
+import { WORK_CATEGORIES } from "./db-schema";
 
 // ============================================
 // JSON-File Persistent Database
 // ============================================
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), "omar-hussein-website")
+  : path.join(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "submissions.json");
 
 interface DbData {
@@ -22,7 +31,16 @@ interface DbData {
   contactInquiries: ContactInquiry[];
   nextCourseId: number;
   nextContactId: number;
+  workItems: WorkItem[];
+  nextWorkId: number;
 }
+
+const SUBMISSION_STATUSES: SubmissionStatus[] = [
+  "New",
+  "Read",
+  "Contacted",
+  "Archived",
+];
 
 function ensureDir(): void {
   if (!fs.existsSync(DATA_DIR)) {
@@ -38,17 +56,149 @@ function readDb(): DbData {
       contactInquiries: [],
       nextCourseId: 1,
       nextContactId: 1,
+      workItems: [],
+      nextWorkId: 1,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
     return initial;
   }
   const raw = fs.readFileSync(DB_FILE, "utf-8");
-  return JSON.parse(raw) as DbData;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Database file contains invalid JSON: ${DB_FILE}`, {
+      cause: error,
+    });
+  }
+
+  if (!isDbData(parsed)) {
+    throw new Error(`Database file has an invalid schema: ${DB_FILE}`);
+  }
+  normalizeSubmissionReplies(parsed);
+  return parsed;
 }
 
 function writeDb(data: DbData): void {
   ensureDir();
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+  const temporaryFile = `${DB_FILE}.tmp`;
+  fs.writeFileSync(temporaryFile, JSON.stringify(data, null, 2), "utf-8");
+  fs.renameSync(temporaryFile, DB_FILE);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStatus(value: unknown): value is SubmissionStatus {
+  return (
+    typeof value === "string" &&
+    SUBMISSION_STATUSES.includes(value as SubmissionStatus)
+  );
+}
+
+function hasBaseSubmissionFields(value: Record<string, unknown>): boolean {
+  return (
+    Number.isSafeInteger(value.id) &&
+    Number(value.id) > 0 &&
+    typeof value.email === "string" &&
+    typeof value.phone === "string" &&
+    typeof value.message === "string" &&
+    isStatus(value.status) &&
+    typeof value.createdAt === "string" &&
+    !Number.isNaN(Date.parse(value.createdAt)) &&
+    (value.replies === undefined ||
+      (Array.isArray(value.replies) && value.replies.every(isSubmissionReply)))
+  );
+}
+
+function isSubmissionReply(value: unknown): value is SubmissionReply {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.subject === "string" &&
+    typeof value.message === "string" &&
+    typeof value.sentAt === "string" &&
+    !Number.isNaN(Date.parse(value.sentAt)) &&
+    typeof value.providerEmailId === "string"
+  );
+}
+
+function isCourseBooking(value: unknown): value is CourseBooking {
+  return (
+    isRecord(value) &&
+    hasBaseSubmissionFields(value) &&
+    typeof value.fullName === "string" &&
+    typeof value.course === "string"
+  );
+}
+
+function isContactInquiry(value: unknown): value is ContactInquiry {
+  return (
+    isRecord(value) &&
+    hasBaseSubmissionFields(value) &&
+    typeof value.name === "string" &&
+    typeof value.shootType === "string" &&
+    typeof value.preferredDate === "string" &&
+    typeof value.budgetRange === "string"
+  );
+}
+
+function isWorkItem(value: unknown): value is WorkItem {
+  if (!isRecord(value)) return false;
+  return (
+    Number.isSafeInteger(value.id) &&
+    Number(value.id) > 0 &&
+    typeof value.title === "string" &&
+    typeof value.imageUrl === "string" &&
+    typeof value.fullImageUrl === "string" &&
+    typeof value.category === "string" &&
+    WORK_CATEGORIES.includes(value.category as WorkCategory) &&
+    typeof value.altText === "string" &&
+    typeof value.displayOrder === "number" &&
+    typeof value.isPublished === "boolean" &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isDbData(value: unknown): value is DbData {
+  if (!isRecord(value)) return false;
+  const hasBase =
+    Array.isArray(value.courseBookings) &&
+    value.courseBookings.every(isCourseBooking) &&
+    Array.isArray(value.contactInquiries) &&
+    value.contactInquiries.every(isContactInquiry) &&
+    Number.isSafeInteger(value.nextCourseId) &&
+    Number(value.nextCourseId) > 0 &&
+    Number.isSafeInteger(value.nextContactId) &&
+    Number(value.nextContactId) > 0;
+  if (!hasBase) return false;
+
+  // Backward-compatible: migrate old DB files without workItems
+  if (!Array.isArray(value.workItems)) {
+    (value as Record<string, unknown>).workItems = [];
+    (value as Record<string, unknown>).nextWorkId = 1;
+  }
+  if (!Number.isSafeInteger(value.nextWorkId)) {
+    (value as Record<string, unknown>).nextWorkId = 1;
+  }
+
+  return (
+    Array.isArray(value.workItems) &&
+    value.workItems.every(isWorkItem)
+  );
+}
+
+function normalizeSubmissionReplies(db: DbData): void {
+  for (const submission of [
+    ...db.courseBookings,
+    ...db.contactInquiries,
+  ]) {
+    if (!Array.isArray(submission.replies)) {
+      submission.replies = [];
+    }
+  }
 }
 
 // ============================================
@@ -72,6 +222,7 @@ export function insertCourseBooking(input: {
     message: input.message,
     status: "New",
     createdAt: new Date().toISOString(),
+    replies: [],
   };
   db.courseBookings.push(booking);
   writeDb(db);
@@ -108,6 +259,7 @@ export function insertContactInquiry(input: {
     message: input.message,
     status: "New",
     createdAt: new Date().toISOString(),
+    replies: [],
   };
   db.contactInquiries.push(inquiry);
   writeDb(db);
@@ -239,6 +391,30 @@ export function getSubmissionById(
   return getContactInquiryById(id);
 }
 
+export function addSubmissionReply(
+  type: "course" | "contact",
+  id: number,
+  reply: SubmissionReply
+): CourseBooking | ContactInquiry | null {
+  const db = readDb();
+  const submission =
+    type === "course"
+      ? db.courseBookings.find((booking) => booking.id === id)
+      : db.contactInquiries.find((inquiry) => inquiry.id === id);
+
+  if (!submission) return null;
+
+  const existingReply = submission.replies.find(
+    (existing) => existing.id === reply.id
+  );
+  if (!existingReply) {
+    submission.replies.push(reply);
+  }
+  submission.status = "Contacted";
+  writeDb(db);
+  return submission;
+}
+
 // ============================================
 // Dashboard Counts
 // ============================================
@@ -260,4 +436,142 @@ export function getDashboardCounts(): DashboardCounts {
       (i) => i.status === "Contacted"
     ).length,
   };
+}
+
+// ============================================
+// Work Items CRUD
+// ============================================
+
+export function insertWorkItem(input: {
+  title: string;
+  imageUrl: string;
+  fullImageUrl: string;
+  category: WorkCategory;
+  altText: string;
+  displayOrder?: number;
+  isPublished?: boolean;
+  blurDataURL?: string;
+  cardWidth?: number;
+  cardHeight?: number;
+  sourceFile?: string;
+}): WorkItem {
+  const db = readDb();
+  const now = new Date().toISOString();
+  const item: WorkItem = {
+    id: db.nextWorkId++,
+    title: input.title,
+    imageUrl: input.imageUrl,
+    fullImageUrl: input.fullImageUrl,
+    category: input.category,
+    altText: input.altText,
+    displayOrder: input.displayOrder ?? db.workItems.length + 1,
+    isPublished: input.isPublished ?? true,
+    blurDataURL: input.blurDataURL,
+    cardWidth: input.cardWidth,
+    cardHeight: input.cardHeight,
+    sourceFile: input.sourceFile,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.workItems.push(item);
+  writeDb(db);
+  return item;
+}
+
+export function getWorkItemById(id: number): WorkItem | null {
+  const db = readDb();
+  return db.workItems.find((w) => w.id === id) ?? null;
+}
+
+export function listWorkItems(params: WorkListParams): WorkListResult {
+  const db = readDb();
+  let items = [...db.workItems];
+
+  if (params.category) {
+    items = items.filter((w) => w.category === params.category);
+  }
+
+  if (params.search) {
+    const s = params.search.toLowerCase();
+    items = items.filter(
+      (w) =>
+        w.title.toLowerCase().includes(s) ||
+        w.altText.toLowerCase().includes(s) ||
+        w.category.toLowerCase().includes(s)
+    );
+  }
+
+  // Sort by displayOrder ascending, then newest first
+  items.sort((a, b) => {
+    if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  const page = params.page ?? 1;
+  const limit = params.limit ?? 50;
+  const total = items.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const offset = (page - 1) * limit;
+
+  return {
+    items: items.slice(offset, offset + limit),
+    total,
+    page,
+    totalPages,
+  };
+}
+
+export function getPublishedWorkItems(): WorkItem[] {
+  const db = readDb();
+  return db.workItems
+    .filter((w) => w.isPublished)
+    .sort((a, b) => {
+      if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+}
+
+export function updateWorkItem(
+  id: number,
+  updates: Partial<Omit<WorkItem, "id" | "createdAt">>
+): WorkItem | null {
+  const db = readDb();
+  const item = db.workItems.find((w) => w.id === id);
+  if (!item) return null;
+
+  if (updates.title !== undefined) item.title = updates.title;
+  if (updates.imageUrl !== undefined) item.imageUrl = updates.imageUrl;
+  if (updates.fullImageUrl !== undefined) item.fullImageUrl = updates.fullImageUrl;
+  if (updates.category !== undefined) item.category = updates.category;
+  if (updates.altText !== undefined) item.altText = updates.altText;
+  if (updates.displayOrder !== undefined) item.displayOrder = updates.displayOrder;
+  if (updates.isPublished !== undefined) item.isPublished = updates.isPublished;
+  if (updates.blurDataURL !== undefined) item.blurDataURL = updates.blurDataURL;
+  if (updates.cardWidth !== undefined) item.cardWidth = updates.cardWidth;
+  if (updates.cardHeight !== undefined) item.cardHeight = updates.cardHeight;
+  item.updatedAt = new Date().toISOString();
+
+  writeDb(db);
+  return item;
+}
+
+export function deleteWorkItem(id: number): boolean {
+  const db = readDb();
+  const index = db.workItems.findIndex((w) => w.id === id);
+  if (index === -1) return false;
+  db.workItems.splice(index, 1);
+  writeDb(db);
+  return true;
+}
+
+export function getWorkItemBySourceFile(sourceFile: string): WorkItem | null {
+  const db = readDb();
+  return db.workItems.find((w) => w.sourceFile === sourceFile) ?? null;
+}
+
+export function getWorkCounts(): { total: number; published: number; draft: number } {
+  const db = readDb();
+  const total = db.workItems.length;
+  const published = db.workItems.filter((w) => w.isPublished).length;
+  return { total, published, draft: total - published };
 }

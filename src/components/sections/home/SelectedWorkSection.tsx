@@ -1,25 +1,60 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { AnimatedSection } from "@/components/ui/AnimatedSection";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { Lightbox } from "@/components/ui/Lightbox";
-import { PROJECTS } from "@/lib/projects";
+import { mapWorkCategoryToDisplay } from "@/lib/projects";
 import type { Project } from "@/lib/projects";
+import type { WorkItem } from "@/lib/db-schema";
+import Image from "next/image";
 
-// Featured projects in requested order: 1Portraits, 2Portraits, 3Portraits, + 4th project
-const FEATURED_IDS = ["project-01", "project-07", "project-08", "project-04"];
-const FEATURED = FEATURED_IDS.map((id) => PROJECTS.find((p) => p.id === id)).filter(
-  (p): p is Project => p !== undefined
-);
+/**
+ * Convert a WorkItem to a Project for the gallery/lightbox.
+ */
+function workItemToProject(item: WorkItem): Project {
+  return {
+    id: String(item.id),
+    title: item.title,
+    category: mapWorkCategoryToDisplay(item.category),
+    description: item.altText || item.title,
+    coverImage: item.imageUrl,
+    lightboxImage: item.fullImageUrl,
+    images: [item.fullImageUrl],
+    cardWidth: item.cardWidth || 533,
+    cardHeight: item.cardHeight || 800,
+    blurDataURL: item.blurDataURL,
+  };
+}
 
 /**
  * Selected work preview with asymmetric grid layout and lightbox gallery.
+ * Fetches featured images from the public API.
  */
 export function SelectedWorkSection() {
+  const [featured, setFeatured] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+
+  // Fetch first 4 published work items for featured display
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchFeatured() {
+      try {
+        const res = await fetch("/api/work");
+        const data = await res.json();
+        if (data.success && Array.isArray(data.items)) {
+          const projects = data.items.slice(0, 4).map(workItemToProject);
+          if (!cancelled) setFeatured(projects);
+        }
+      } catch {
+        // Silently fail — homepage still works without featured section
+      }
+    }
+    void fetchFeatured();
+    return () => { cancelled = true; };
+  }, []);
 
   const openLightbox = useCallback((project: Project) => {
     setSelectedProject(project);
@@ -55,6 +90,9 @@ export function SelectedWorkSection() {
     setCurrentImageIndex((prev) => (prev + 1) % images.length);
   }, [selectedProject]);
 
+  // Don't render section if no featured items loaded yet
+  if (featured.length === 0) return null;
+
   return (
     <section className="relative pt-24 md:pt-28 pb-16 md:pb-20 overflow-hidden scroll-mt-24">
       {/* Atmospheric glow */}
@@ -71,7 +109,7 @@ export function SelectedWorkSection() {
 
         {/* Asymmetric grid */}
         <div className="mt-10 md:mt-12 grid grid-cols-1 md:grid-cols-12 gap-5">
-          {FEATURED.map((project, i) => {
+          {featured.map((project, i) => {
             // Asymmetric column spans
             const spanClass =
               i === 0
@@ -95,20 +133,23 @@ export function SelectedWorkSection() {
                 >
                   {/* Image placeholder or cover image */}
                   {project.coverImage ? (
-                    <img
+                    <Image
                       src={project.coverImage}
                       alt={project.title}
-                      className="w-full h-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.03]"
-                      style={{
-                        aspectRatio: i === 0 || i === 3 ? "16/9.5" : "4/4.8",
-                      }}
+                      width={project.cardWidth || 533}
+                      height={project.cardHeight || 800}
+                      sizes="(max-width: 767px) 100vw, 58vw"
+                      loading={i === 0 ? "eager" : "lazy"}
+                      placeholder={project.blurDataURL ? "blur" : "empty"}
+                      blurDataURL={project.blurDataURL}
+                      className="w-full h-auto object-cover transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.03]"
                     />
                   ) : (
                     <div
                       className="w-full transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.03]"
                       style={{
                         background: project.gradient,
-                        aspectRatio: i === 0 || i === 3 ? "16/9.5" : "4/4.8",
+                        aspectRatio: "2/3",
                       }}
                     />
                   )}

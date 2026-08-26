@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   LogOut,
@@ -19,6 +19,8 @@ import {
   User,
   Camera,
   Loader2,
+  Send,
+  CheckCircle2,
 } from "lucide-react";
 import type { SubmissionStatus, CourseBooking, ContactInquiry, DashboardCounts } from "@/lib/db-schema";
 
@@ -107,53 +109,117 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [replySubject, setReplySubject] = useState("");
+  const [replyMessage, setReplyMessage] = useState("");
+  const [replyRequestId, setReplyRequestId] = useState("");
+  const [replySending, setReplySending] = useState(false);
+  const [replySuccess, setReplySuccess] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Fetch submissions
-  const fetchSubmissions = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ type: tab, page: String(page) });
-      if (statusFilter) params.set("status", statusFilter);
-      if (search) params.set("search", search);
+  useEffect(() => {
+    const controller = new AbortController();
 
-      const res = await fetch(`/api/admin/submissions?${params}`);
-      const data: ApiResponse = await res.json();
+    async function loadSubmissions() {
+      try {
+        const params = new URLSearchParams({ type: tab, page: String(page) });
+        if (statusFilter) params.set("status", statusFilter);
+        if (search) params.set("search", search);
 
-      if (data.success) {
+        const res = await fetch(`/api/admin/submissions?${params}`, {
+          signal: controller.signal,
+        });
+        if (res.status === 401) {
+          router.replace("/admin/login");
+          return;
+        }
+
+        const data = (await res.json()) as Partial<ApiResponse> & {
+          message?: string;
+        };
+        if (
+          !res.ok ||
+          data.success !== true ||
+          !Array.isArray(data.submissions) ||
+          !data.counts ||
+          typeof data.totalPages !== "number" ||
+          typeof data.total !== "number"
+        ) {
+          throw new Error(data.message || "Unable to load submissions.");
+        }
+
         setSubmissions(data.submissions);
         setCounts(data.counts);
         setTotalPages(data.totalPages);
         setTotal(data.total);
+        setLoadError("");
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("Failed to fetch submissions:", error);
+        setLoadError(
+          error instanceof Error ? error.message : "Unable to load submissions."
+        );
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    } catch (err) {
-      console.error("Failed to fetch submissions:", err);
-    } finally {
-      setLoading(false);
     }
-  }, [tab, page, statusFilter, search]);
 
-  useEffect(() => {
-    fetchSubmissions();
-  }, [fetchSubmissions]);
-
-  // Reset page when changing filters
-  useEffect(() => {
-    setPage(1);
-  }, [tab, statusFilter, search]);
+    void loadSubmissions();
+    return () => controller.abort();
+  }, [tab, page, statusFilter, search, refreshKey, router]);
 
   // Search with debounce
   useEffect(() => {
-    const timeout = setTimeout(() => setSearch(searchInput), 300);
+    const timeout = setTimeout(() => {
+      if (searchInput === search) return;
+      setLoading(true);
+      setPage(1);
+      setSearch(searchInput);
+    }, 300);
     return () => clearTimeout(timeout);
-  }, [searchInput]);
+  }, [search, searchInput]);
+
+  useEffect(() => {
+    if (!selectedSubmission) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedSubmission(null);
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [selectedSubmission]);
+
+  function changeTab(nextTab: TabType) {
+    if (nextTab === tab) return;
+    setLoading(true);
+    setPage(1);
+    setTab(nextTab);
+    setSelectedSubmission(null);
+  }
+
+  function changeStatusFilter(value: SubmissionStatus | "") {
+    setLoading(true);
+    setPage(1);
+    setStatusFilter(value);
+  }
 
   // Logout
   async function handleLogout() {
     setLoggingOut(true);
+    setActionError("");
     try {
-      await fetch("/api/admin/logout", { method: "POST" });
-      router.push("/admin/login");
-    } catch {
+      const res = await fetch("/api/admin/logout", { method: "POST" });
+      if (!res.ok) throw new Error("Unable to sign out. Please try again.");
+      router.replace("/admin/login");
+      router.refresh();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to sign out."
+      );
       setLoggingOut(false);
     }
   }
@@ -161,43 +227,139 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
   // Open detail
   async function openDetail(submission: AnySubmission) {
     setSelectedSubmission(submission);
+    setReplySubject(getDefaultReplySubject(submission, tab));
+    setReplyMessage("");
+    setReplyRequestId(crypto.randomUUID());
+    setReplySuccess("");
     setDetailLoading(true);
+    setActionError("");
     try {
       const res = await fetch(`/api/admin/submissions/${submission.id}?type=${tab}`);
-      const data = await res.json();
-      if (data.success) {
-        setSelectedSubmission(data.submission);
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
       }
-    } catch {
-      // Fall back to the data we already have
+      const data = (await res.json()) as {
+        success?: boolean;
+        submission?: AnySubmission;
+        message?: string;
+      };
+      if (!res.ok || !data.success || !data.submission) {
+        throw new Error(data.message || "Unable to load submission details.");
+      }
+      setSelectedSubmission(data.submission);
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load submission details."
+      );
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function sendReply(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedSubmission || replySending) return;
+
+    const subject = replySubject.trim();
+    const message = replyMessage.trim();
+    if (!subject || !message) {
+      setActionError("Enter both a subject and a message before sending.");
+      return;
+    }
+
+    setReplySending(true);
+    setActionError("");
+    setReplySuccess("");
+    const requestId = replyRequestId || crypto.randomUUID();
+    if (!replyRequestId) setReplyRequestId(requestId);
+
+    try {
+      const response = await fetch(
+        `/api/admin/submissions/${selectedSubmission.id}/reply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: tab,
+            subject,
+            message,
+            requestId,
+          }),
+        }
+      );
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+
+      const data = (await response.json()) as {
+        success?: boolean;
+        submission?: AnySubmission;
+        message?: string;
+      };
+      if (!response.ok || !data.success || !data.submission) {
+        throw new Error(data.message || "Unable to send the reply.");
+      }
+
+      setSelectedSubmission(data.submission);
+      setSubmissions((current) =>
+        current.map((submission) =>
+          submission.id === data.submission?.id && data.submission
+            ? data.submission
+            : submission
+        )
+      );
+      setReplyMessage("");
+      setReplyRequestId(crypto.randomUUID());
+      setReplySuccess(`Reply sent to ${data.submission.email}.`);
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      console.error("Failed to send reply:", error);
+      setActionError(
+        error instanceof Error ? error.message : "Unable to send the reply."
+      );
+    } finally {
+      setReplySending(false);
     }
   }
 
   // Update status
   async function updateStatus(id: number, newStatus: SubmissionStatus) {
     setStatusUpdating(true);
+    setActionError("");
     try {
       const res = await fetch(`/api/admin/submissions/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: tab, status: newStatus }),
       });
-      const data = await res.json();
-      if (data.success) {
-        // Update local state
-        if (selectedSubmission && selectedSubmission.id === id) {
-          setSelectedSubmission({ ...selectedSubmission, status: newStatus });
-        }
-        setSubmissions((prev) =>
-          prev.map((s) => (s.id === id ? { ...s, status: newStatus } : s))
-        );
-        // Refresh counts
-        fetchSubmissions();
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
       }
-    } catch (err) {
-      console.error("Failed to update status:", err);
+      const data = (await res.json()) as {
+        success?: boolean;
+        message?: string;
+      };
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Unable to update the status.");
+      }
+
+      if (selectedSubmission && selectedSubmission.id === id) {
+        setSelectedSubmission({ ...selectedSubmission, status: newStatus });
+      }
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, status: newStatus } : s))
+      );
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      console.error("Failed to update status:", error);
+      setActionError(
+        error instanceof Error ? error.message : "Unable to update the status."
+      );
     } finally {
       setStatusUpdating(false);
     }
@@ -227,18 +389,27 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
               {adminEmail}
             </span>
           </div>
-          <button
-            onClick={handleLogout}
-            disabled={loggingOut}
-            className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-warm-white-muted hover:text-red-400 transition-colors disabled:opacity-50"
-          >
-            {loggingOut ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <LogOut className="w-4 h-4" />
-            )}
-            <span className="hidden sm:inline">Logout</span>
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.push("/admin/work")}
+              className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-warm-white-muted hover:text-warm-white transition-colors"
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden sm:inline">Work</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-warm-white-muted hover:text-red-400 transition-colors disabled:opacity-50"
+            >
+              {loggingOut ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <LogOut className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -253,7 +424,7 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
         {/* Tabs */}
         <div className="flex items-center gap-1 mb-6 border-b border-white/[0.04]">
           <button
-            onClick={() => setTab("course")}
+            onClick={() => changeTab("course")}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold tracking-wide border-b-2 transition-colors ${
               tab === "course"
                 ? "border-crimson text-warm-white"
@@ -271,7 +442,7 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
             )}
           </button>
           <button
-            onClick={() => setTab("contact")}
+            onClick={() => changeTab("contact")}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold tracking-wide border-b-2 transition-colors ${
               tab === "contact"
                 ? "border-crimson text-warm-white"
@@ -306,6 +477,7 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
               <button
                 onClick={() => setSearchInput("")}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-charcoal hover:text-warm-white transition-colors"
+                aria-label="Clear search"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -315,7 +487,10 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
           {/* Status filter */}
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as SubmissionStatus | "")}
+            onChange={(e) =>
+              changeStatusFilter(e.target.value as SubmissionStatus | "")
+            }
+            aria-label="Filter submissions by status"
             className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-warm-white focus:outline-none focus:border-crimson/40 focus:ring-1 focus:ring-crimson/20 transition-colors appearance-none cursor-pointer min-w-[160px]"
           >
             <option value="">All Statuses</option>
@@ -325,6 +500,15 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
             <option value="Archived">Archived</option>
           </select>
         </div>
+
+        {(loadError || actionError) && (
+          <div
+            className="mb-6 rounded-xl border border-red-400/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-400"
+            role="alert"
+          >
+            {loadError || actionError}
+          </div>
+        )}
 
         {/* Table */}
         <div className="rounded-xl border border-white/[0.06] overflow-hidden">
@@ -365,6 +549,14 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
                         <tr
                           key={s.id}
                           onClick={() => openDetail(s)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              void openDetail(s);
+                            }
+                          }}
+                          tabIndex={0}
+                          aria-label={`Open submission from ${name}`}
                           className={`border-b border-white/[0.03] cursor-pointer transition-colors hover:bg-white/[0.04] ${
                             isNew ? "bg-crimson/[0.03]" : ""
                           }`}
@@ -398,6 +590,15 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
                     <div
                       key={s.id}
                       onClick={() => openDetail(s)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          void openDetail(s);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open submission from ${name}`}
                       className={`p-4 cursor-pointer transition-colors hover:bg-white/[0.04] ${
                         isNew ? "bg-crimson/[0.03]" : ""
                       }`}
@@ -427,15 +628,23 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
             </p>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => {
+                  setLoading(true);
+                  setPage((p) => Math.max(1, p - 1));
+                }}
                 disabled={page <= 1}
+                aria-label="Previous page"
                 className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-warm-white-muted hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => {
+                  setLoading(true);
+                  setPage((p) => Math.min(totalPages, p + 1));
+                }}
                 disabled={page >= totalPages}
+                aria-label="Next page"
                 className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-warm-white-muted hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -457,11 +666,18 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
           {/* Modal */}
-          <div className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-surface-container border border-white/[0.06] p-6 sm:p-8">
+          <div
+            className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-surface-container border border-white/[0.06] p-6 sm:p-8"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="submission-dialog-title"
+          >
             {/* Close */}
             <button
               onClick={() => setSelectedSubmission(null)}
               className="absolute top-4 right-4 text-charcoal hover:text-warm-white transition-colors"
+              aria-label="Close submission details"
+              autoFocus
             >
               <X className="w-5 h-5" />
             </button>
@@ -474,7 +690,10 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
               <>
                 {/* Header */}
                 <div className="mb-6">
-                  <h2 className="text-lg font-bold text-warm-white mb-2">
+                  <h2
+                    id="submission-dialog-title"
+                    className="text-lg font-bold text-warm-white mb-2"
+                  >
                     {tab === "course" ? "Course Booking" : "Contact Inquiry"}
                   </h2>
                   <StatusBadge status={selectedSubmission.status} />
@@ -503,6 +722,106 @@ export function DashboardClient({ adminEmail }: { adminEmail: string }) {
                   )}
                   <DetailField icon={Calendar} label="Submitted" value={formatDate(selectedSubmission.createdAt)} />
                 </div>
+
+                {/* Email reply */}
+                <form
+                  onSubmit={sendReply}
+                  className="mb-8 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 sm:p-5"
+                >
+                  <div className="mb-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-charcoal">
+                      Reply by Email
+                    </p>
+                    <p className="mt-1 text-xs text-warm-white-muted break-all">
+                      To: {selectedSubmission.email}
+                    </p>
+                  </div>
+
+                  <label
+                    htmlFor="reply-subject"
+                    className="block text-xs font-medium text-warm-white-muted mb-1.5"
+                  >
+                    Subject
+                  </label>
+                  <input
+                    id="reply-subject"
+                    value={replySubject}
+                    onChange={(event) => setReplySubject(event.target.value)}
+                    maxLength={200}
+                    required
+                    className="mb-4 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm text-warm-white focus:border-crimson/40 focus:outline-none focus:ring-1 focus:ring-crimson/20"
+                  />
+
+                  <label
+                    htmlFor="reply-message"
+                    className="block text-xs font-medium text-warm-white-muted mb-1.5"
+                  >
+                    Message
+                  </label>
+                  <textarea
+                    id="reply-message"
+                    value={replyMessage}
+                    onChange={(event) => setReplyMessage(event.target.value)}
+                    rows={6}
+                    maxLength={5000}
+                    required
+                    placeholder="Write your reply..."
+                    className="w-full resize-y rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm text-warm-white placeholder:text-charcoal focus:border-crimson/40 focus:outline-none focus:ring-1 focus:ring-crimson/20"
+                  />
+
+                  <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div aria-live="polite">
+                      {replySuccess && (
+                        <p className="flex items-center gap-2 text-xs text-green-400">
+                          <CheckCircle2 className="h-4 w-4" />
+                          {replySuccess}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={replySending}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-crimson px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-warm-white transition-colors hover:bg-crimson/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {replySending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                      {replySending ? "Sending..." : "Send Reply"}
+                    </button>
+                  </div>
+                </form>
+
+                {selectedSubmission.replies.length > 0 && (
+                  <div className="mb-8">
+                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-charcoal">
+                      Reply History
+                    </p>
+                    <div className="space-y-3">
+                      {[...selectedSubmission.replies]
+                        .reverse()
+                        .map((reply) => (
+                          <div
+                            key={reply.id}
+                            className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-3"
+                          >
+                            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                              <p className="text-sm font-medium text-warm-white">
+                                {reply.subject}
+                              </p>
+                              <p className="text-[11px] text-charcoal whitespace-nowrap">
+                                {formatDate(reply.sentAt)}
+                              </p>
+                            </div>
+                            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-warm-white-muted">
+                              {reply.message}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Status Changer */}
                 <div>
@@ -581,4 +900,14 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function getDefaultReplySubject(
+  submission: AnySubmission,
+  type: TabType
+): string {
+  if (type === "course") {
+    return `Re: ${(submission as CourseBooking).course}`;
+  }
+  return "Re: Your photography inquiry";
 }

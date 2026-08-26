@@ -24,7 +24,7 @@ export function VideoGallery({ videos }: VideoGalleryProps) {
       aria-label="Sample work videos"
     >
       {videos.map((video, index) => (
-        <VideoCard key={index} video={video} index={index} />
+        <VideoCard key={video.videoUrl} video={video} index={index} />
       ))}
     </div>
   );

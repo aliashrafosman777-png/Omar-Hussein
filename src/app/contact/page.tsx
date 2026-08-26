@@ -28,6 +28,7 @@ export default function ContactPage() {
           <SectionHeading
             label="Contact"
             title={CONTACT_CONTENT.headline}
+            level="h1"
             description={CONTACT_CONTENT.intro}
           />
         </AnimatedSection>
@@ -68,7 +69,7 @@ export default function ContactPage() {
 
                 {/* Phone */}
                 <a
-                  href={`tel:${CONTACT_CONTENT.phone}`}
+                  href={`tel:${CONTACT_CONTENT.phoneHref}`}
                   className="contact-detail-row group"
                 >
                   <span className="contact-detail-icon contact-detail-icon-blue group-hover:scale-105">

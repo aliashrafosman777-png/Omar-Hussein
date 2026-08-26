@@ -14,6 +14,9 @@ function getEncodedKey(): Uint8Array {
   if (!SESSION_SECRET) {
     throw new Error("SESSION_SECRET environment variable is not set.");
   }
+  if (SESSION_SECRET.length < 32) {
+    throw new Error("SESSION_SECRET must be at least 32 characters long.");
+  }
   return new TextEncoder().encode(SESSION_SECRET);
 }
 

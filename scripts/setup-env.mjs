@@ -2,13 +2,20 @@ import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
 
-const password = "InspireH0use2026!";
+const password = process.argv[2];
+if (!password || password.length < 12) {
+  console.error(
+    'Usage: node scripts/setup-env.mjs "a password with at least 12 characters"'
+  );
+  process.exit(1);
+}
+
 const hash = await bcrypt.hash(password, 12);
 
-// Verify it works
 const match = await bcrypt.compare(password, hash);
-console.log("Hash generated:", hash);
-console.log("Verification:", match);
+if (!match) {
+  throw new Error("Unable to verify the generated password hash.");
+}
 
 // Write hash to a separate file (avoids dotenv $ interpolation issues)
 const dataDir = path.join(process.cwd(), "data");
@@ -19,21 +26,7 @@ fs.writeFileSync(
   hash,
   "utf-8"
 );
-console.log("\n✅ Hash written to data/admin-hash.txt");
-
-// Update .env.local WITHOUT the hash (remove ADMIN_PASSWORD_HASH)
-const envContent = `# Omar Hussein Photography — Local Environment Variables
-# DO NOT COMMIT THIS FILE
-
-# Contact Form Email Provider
-CONTACT_EMAIL_PROVIDER=
-RESEND_API_KEY=
-CONTACT_TO_EMAIL=hello@omarhussein.photography
-
-# Admin Authentication
-ADMIN_EMAIL=admin@OmarHussein.com
-SESSION_SECRET=774owSXGm9RWZzWgvunVjTTI9nvo7PfaiV90krz+iW4=
-`;
-
-fs.writeFileSync(".env.local", envContent, "utf-8");
-console.log("✅ .env.local updated (hash stored separately in data/admin-hash.txt)");
+console.log("Password hash written to data/admin-hash.txt.");
+console.log(
+  "For deployments, set ADMIN_PASSWORD_HASH to the generated hash in your hosting environment."
+);

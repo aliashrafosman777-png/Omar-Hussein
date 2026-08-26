@@ -142,7 +142,7 @@ export function ContactForm() {
       </div>
       {/* Error summary */}
       {Object.keys(errors).length > 0 && status !== "loading" && (
-        <div className="glass-card rounded-xl p-4 border-red-400/20 flex items-start gap-3">
+        <div className="glass-card rounded-xl p-4 border-red-400/20 flex items-start gap-3" role="alert">
           <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div>
             <p className="text-sm font-medium text-red-400">
@@ -160,7 +160,7 @@ export function ContactForm() {
       {/* Success message */}
       {status === "success" && (
         <AnimatedSection>
-          <div className="glass-card rounded-xl p-6 border-green-400/20 flex items-start gap-3">
+          <div className="glass-card rounded-xl p-6 border-green-400/20 flex items-start gap-3" role="status">
             <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
             <div>
               <p className="text-sm font-medium text-green-400">{statusMessage}</p>
@@ -186,6 +186,8 @@ export function ContactForm() {
             onChange={handleChange}
             className={`${inputBase} ${errors.name ? "!border-red-400/40" : ""}`}
             placeholder="Your full name"
+            maxLength={200}
+            autoComplete="name"
             required
             aria-invalid={!!errors.name}
             aria-describedby={errors.name ? "name-error" : undefined}
@@ -206,6 +208,8 @@ export function ContactForm() {
             onChange={handleChange}
             className={`${inputBase} ${errors.email ? "!border-red-400/40" : ""}`}
             placeholder="your@email.com"
+            maxLength={320}
+            autoComplete="email"
             required
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "email-error" : undefined}
@@ -224,6 +228,8 @@ export function ContactForm() {
             onChange={handleChange}
             className={inputBase}
             placeholder="+1 (000) 000-0000"
+            maxLength={30}
+            autoComplete="tel"
           />
         </div>
 
@@ -302,6 +308,7 @@ export function ContactForm() {
           rows={5}
           className={`${inputBase} resize-none ${errors.message ? "!border-red-400/40" : ""}`}
           placeholder="Tell me about your project, vision, or idea..."
+          maxLength={5000}
           required
           aria-invalid={!!errors.message}
           aria-describedby={errors.message ? "message-error" : undefined}
@@ -320,12 +327,13 @@ export function ContactForm() {
             className="mt-1 h-4 w-4 rounded border-white/10 bg-white/[0.03] text-crimson focus:ring-crimson/30 accent-[#942322]"
             required
             aria-invalid={!!errors.consent}
+            aria-describedby={errors.consent ? "consent-error" : undefined}
           />
           <span className="text-sm text-warm-white-muted leading-relaxed group-hover:text-warm-white transition-colors">
             I agree to be contacted regarding my inquiry and understand that my information will be handled respectfully.
           </span>
         </label>
-        {errors.consent && <p className={`${errorBase} ml-7`}>{errors.consent}</p>}
+        {errors.consent && <p id="consent-error" className={`${errorBase} ml-7`}>{errors.consent}</p>}
       </div>
 
       {/* Submit */}
@@ -343,7 +351,7 @@ export function ContactForm() {
 
       {/* Error status */}
       {status === "error" && (
-        <p className="text-sm text-red-400 flex items-center gap-2">
+        <p className="text-sm text-red-400 flex items-center gap-2" role="alert">
           <AlertCircle className="h-4 w-4" aria-hidden="true" />
           {statusMessage}
         </p>

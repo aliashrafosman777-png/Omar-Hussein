@@ -121,26 +121,28 @@ export function Navbar() {
 
           {/* Mobile Toggle — animated hamburger lines (Spazio-style) */}
           <button
-            className="lg:hidden flex flex-col justify-between w-7 h-[18px] bg-transparent border-none cursor-pointer p-0 z-[1100]"
+            className="lg:hidden flex items-center justify-center w-11 h-11 -mr-2 bg-transparent border-none cursor-pointer p-0 z-[1100]"
             onClick={() => setIsMobileOpen(!isMobileOpen)}
             aria-label={isMobileOpen ? "Close menu" : "Open menu"}
             aria-expanded={isMobileOpen}
           >
-            <motion.span
-              className="w-full h-[2px] bg-warm-white rounded-sm origin-center"
-              animate={isMobileOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            />
-            <motion.span
-              className="w-full h-[2px] bg-warm-white rounded-sm"
-              animate={isMobileOpen ? { opacity: 0 } : { opacity: 1 }}
-              transition={{ duration: 0.2 }}
-            />
-            <motion.span
-              className="w-full h-[2px] bg-warm-white rounded-sm origin-center"
-              animate={isMobileOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            />
+            <span className="flex flex-col justify-between w-7 h-[18px]">
+              <motion.span
+                className="w-full h-[2px] bg-warm-white rounded-sm origin-center"
+                animate={isMobileOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              />
+              <motion.span
+                className="w-full h-[2px] bg-warm-white rounded-sm"
+                animate={isMobileOpen ? { opacity: 0 } : { opacity: 1 }}
+                transition={{ duration: 0.2 }}
+              />
+              <motion.span
+                className="w-full h-[2px] bg-warm-white rounded-sm origin-center"
+                animate={isMobileOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              />
+            </span>
           </button>
         </div>
       </header>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AnimatedSection } from "@/components/ui/AnimatedSection";
 import { CourseAccordion } from "@/components/sections/courses/CourseAccordion";
 import { CourseBookingForm } from "@/components/sections/courses/CourseBookingForm";
+import { CourseShowcaseVideo } from "@/components/sections/courses/CourseShowcaseVideo";
 import { CoursesHeroBlobs } from "@/components/sections/courses/CoursesHeroBlobs";
 import { VideoGallery } from "@/components/sections/courses/VideoGallery";
 import { COURSES_CONTENT, SAMPLE_WORK_CONTENT } from "@/lib/content";
@@ -34,20 +35,25 @@ export default function CoursesPage() {
         </div>
       </section>
 
-      {/* ── Courses + Booking Form Section ── */}
+      {/* ── Courses + Form + Video Section ── */}
       <section className="relative pb-section overflow-hidden">
         <div className="relative z-10 mx-auto max-w-[1280px] px-6 md:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-start">
-            {/* Course Accordion — Left */}
-            <AnimatedSection className="lg:col-span-7" delay={0.1}>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-start">
+            {/* Course Accordion — order 1 on mobile, left column on desktop */}
+            <AnimatedSection className="lg:col-span-7 lg:row-start-1 order-1" delay={0.1}>
               <CourseAccordion />
             </AnimatedSection>
 
-            {/* Booking Form — Right (sticky) */}
-            <AnimatedSection className="lg:col-span-5" delay={0.2}>
+            {/* Showcase Video — order 2 on mobile, right column on desktop (sticky) */}
+            <AnimatedSection className="lg:col-span-5 lg:row-span-2 lg:row-start-1 lg:col-start-8 order-2" delay={0.2}>
               <div className="lg:sticky lg:top-28">
-                <CourseBookingForm />
+                <CourseShowcaseVideo />
               </div>
+            </AnimatedSection>
+
+            {/* Booking Form — order 3 on mobile, left column below accordion on desktop */}
+            <AnimatedSection className="lg:col-span-7 lg:row-start-2 order-3" delay={0.25}>
+              <CourseBookingForm />
             </AnimatedSection>
           </div>
         </div>

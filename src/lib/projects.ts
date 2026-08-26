@@ -1,9 +1,8 @@
 // ============================================
-// OMAR HUSSEIN PHOTOGRAPHY — Project Data
-// Replace sample projects with real portfolio work
+// OMAR HUSSEIN PHOTOGRAPHY — Project Types
 // ============================================
 
-export type ProjectCategory = "All" | "Portraits";
+export type ProjectCategory = "All" | "Artistic" | "Bridal" | "Fashion" | "Products";
 
 export interface Project {
   id: string;
@@ -12,111 +11,40 @@ export interface Project {
   description: string;
   /** Gradient placeholder for fallback */
   gradient?: string;
-  /** Cover image path for gallery thumbnail */
+  /** Cover image path for card thumbnail (optimized WebP) */
   coverImage?: string;
-  /** Array of gallery image URLs */
+  /** Full-resolution image path for lightbox */
+  lightboxImage?: string;
+  /** Array of gallery image URLs (full-res for lightbox) */
   images?: string[];
-  aspectRatio: "portrait" | "landscape" | "square";
+  /** Array of card-sized gallery thumbnails (parallel to images) */
+  cardImages?: string[];
+  /** Natural image dimensions for proper aspect ratio */
+  cardWidth?: number;
+  cardHeight?: number;
+  /** Blur data URL for instant placeholder */
+  blurDataURL?: string;
 }
 
 export const CATEGORIES: ProjectCategory[] = [
   "All",
-  "Portraits",
+  "Artistic",
+  "Bridal",
+  "Fashion",
+  "Products",
 ];
 
-export const PROJECTS: Project[] = [
-  {
-    id: "project-01",
-    title: "Portrait Soliloquy",
-    category: "Portraits",
-    description:
-      "A portrait series exploring character, light, and emotion.",
-    coverImage: "/media/work/1Portraits.jpeg",
-    images: [
-      "/media/work/1Portraits.jpeg",
-      "/media/work/1.1Portraits.jpeg",
-    ],
-    aspectRatio: "portrait",
-  },
-  {
-    id: "project-02",
-    title: "Midnight Portrait",
-    category: "Portraits",
-    description:
-      "Portrait series captured in cinematic tones — bold silhouettes against atmospheric backdrops.",
-    gradient: "linear-gradient(160deg, #05345F 0%, #643F45 50%, #1A1A1E 100%)",
-    aspectRatio: "landscape",
-  },
-  {
-    id: "project-03",
-    title: "Urban Expression",
-    category: "Portraits",
-    description:
-      "Character portraiture capturing urban lifestyle — energy, movement, and visual impact.",
-    gradient: "linear-gradient(180deg, #1A1A1E 0%, #942322 40%, #05345F 100%)",
-    aspectRatio: "portrait",
-  },
-  {
-    id: "project-04",
-    title: "The Atmosphere",
-    category: "Portraits",
-    description:
-      "Intimate studio portrait session capturing raw energy and authentic emotion.",
-    gradient: "linear-gradient(145deg, #643F45 0%, #0A0A0B 50%, #05345F 100%)",
-    aspectRatio: "landscape",
-  },
-  {
-    id: "project-05",
-    title: "Quiet Strength",
-    category: "Portraits",
-    description:
-      "Minimalist portraiture with a focus on expression, texture, and the interplay of warm light on skin.",
-    gradient: "linear-gradient(170deg, #942322 0%, #643F45 60%, #0A0A0B 100%)",
-    aspectRatio: "square",
-  },
-  {
-    id: "project-06",
-    title: "Shadow & Structure",
-    category: "Portraits",
-    description:
-      "Architectural portraiture for creative professionals — clean, precise, and elevated.",
-    gradient: "linear-gradient(130deg, #05345F 0%, #1A1A1E 50%, #942322 100%)",
-    aspectRatio: "portrait",
-  },
-  {
-    id: "project-07",
-    title: "Velvet Hour",
-    category: "Portraits",
-    description:
-      "A portrait exploration of twilight beauty — rich tones, flowing fabric, and controlled movement.",
-    coverImage: "/media/work/2Portraits.jpeg",
-    images: [
-      "/media/work/2Portraits.jpeg",
-      "/media/work/2.1Portraits.jpeg",
-      "/media/work/2.2Portraits.jpeg",
-    ],
-    aspectRatio: "landscape",
-  },
-  {
-    id: "project-08",
-    title: "Resonance",
-    category: "Portraits",
-    description:
-      "Character portraiture — capturing emotion and depth in intimate moments.",
-    coverImage: "/media/work/3Portraits.jpeg",
-    images: [
-      "/media/work/3Portraits.jpeg",
-      "/media/work/3.1Portraits.jpeg",
-    ],
-    aspectRatio: "portrait",
-  },
-  {
-    id: "project-09",
-    title: "First Light",
-    category: "Portraits",
-    description:
-      "Dawn-lit portrait series capturing the quiet vulnerability of early morning — soft, honest, and warm.",
-    gradient: "linear-gradient(180deg, #942322 0%, #643F45 70%, #05345F 100%)",
-    aspectRatio: "square",
-  },
-];
+/**
+ * Map WorkCategory enum values to display-friendly ProjectCategory values.
+ */
+export function mapWorkCategoryToDisplay(
+  category: string
+): Exclude<ProjectCategory, "All"> {
+  const map: Record<string, Exclude<ProjectCategory, "All">> = {
+    ARTISTIC: "Artistic",
+    BRIDAL: "Bridal",
+    FASHION: "Fashion",
+    PRODUCTS: "Products",
+  };
+  return map[category] ?? "Artistic";
+}

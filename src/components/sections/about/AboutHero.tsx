@@ -2,6 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
+import Image from "next/image";
 
 /**
  * About page hero with portrait placeholder area.
@@ -100,15 +101,17 @@ export function AboutHero() {
               />
 
               {/* Omar's portrait image — brightened with filter & multiply blend */}
-              <img
+              <Image
                 src="/media/omar-portrait.jpeg"
                 alt="Omar Hussein — Photographer"
+                fill
+                sizes="(max-width: 767px) 100vw, 32rem"
+                priority
                 className="absolute inset-0 w-full h-full object-cover object-top z-[2] transition-transform duration-700 ease-out group-hover:scale-[1.03]"
                 style={{
                   mixBlendMode: "multiply",
                   filter: "brightness(1.32) contrast(1.06)",
                 }}
-                loading="eager"
               />
 
               {/* Minimal subtle bottom edge fade */}

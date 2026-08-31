@@ -111,10 +111,27 @@ async function readDb(): Promise<DbSnapshot> {
     };
   }
 
-  ensureDir();
+  // Local filesystem storage (development or deployments without Blob).
+  // On Vercel serverless the filesystem is read-only and /data/ is in
+  // .gitignore, so creating or writing files will fail. Handle gracefully
+  // by returning in-memory initial data.
+  try {
+    ensureDir();
+  } catch {
+    console.info(
+      "Database: filesystem is read-only; using in-memory initial data. " +
+        "Set BLOB_READ_WRITE_TOKEN for persistent storage."
+    );
+    return { data: createInitialData(), remote: false };
+  }
+
   if (!fs.existsSync(DB_FILE)) {
     const initial = createInitialData();
-    fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
+    } catch {
+      // Read-only filesystem — return initial data without persisting
+    }
     return { data: initial, remote: false };
   }
   const raw = fs.readFileSync(DB_FILE, "utf-8");
@@ -133,14 +150,22 @@ async function writeDb(snapshot: DbSnapshot): Promise<void> {
     return;
   }
 
-  ensureDir();
-  const temporaryFile = `${DB_FILE}.tmp`;
-  fs.writeFileSync(
-    temporaryFile,
-    JSON.stringify(snapshot.data, null, 2),
-    "utf-8"
-  );
-  fs.renameSync(temporaryFile, DB_FILE);
+  // Local filesystem write — may fail on read-only deployments
+  try {
+    ensureDir();
+    const temporaryFile = `${DB_FILE}.tmp`;
+    fs.writeFileSync(
+      temporaryFile,
+      JSON.stringify(snapshot.data, null, 2),
+      "utf-8"
+    );
+    fs.renameSync(temporaryFile, DB_FILE);
+  } catch {
+    console.warn(
+      "Database: unable to persist changes to filesystem. " +
+        "Set BLOB_READ_WRITE_TOKEN for durable storage."
+    );
+  }
 }
 
 async function mutateDb<T>(mutator: (data: DbData) => T): Promise<T> {

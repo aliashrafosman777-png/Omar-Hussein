@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySession } from "@/lib/session";
 import { getWorkItemById, updateWorkItem, deleteWorkItem } from "@/lib/db";
 import { WORK_CATEGORIES } from "@/lib/db-schema";
-import type { WorkCategory } from "@/lib/db-schema";
-import sharp from "sharp";
-import fs from "fs";
-import path from "path";
+import type { WorkCategory, WorkItem } from "@/lib/db-schema";
+import { deleteWorkImages, storeWorkImage } from "@/lib/work-images";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "media", "work", "uploads");
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB
 
@@ -15,12 +12,6 @@ function parseWorkId(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
-}
-
-function ensureUploadDir(): void {
-  if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
 }
 
 /**
@@ -48,7 +39,7 @@ export async function GET(
     );
   }
 
-  const item = getWorkItemById(id);
+  const item = await getWorkItemById(id);
   if (!item) {
     return NextResponse.json(
       { success: false, message: "Work item not found." },
@@ -85,7 +76,7 @@ export async function PATCH(
       );
     }
 
-    const existing = getWorkItemById(id);
+    const existing = await getWorkItemById(id);
     if (!existing) {
       return NextResponse.json(
         { success: false, message: "Work item not found." },
@@ -94,7 +85,7 @@ export async function PATCH(
     }
 
     const formData = await request.formData();
-    const updates: Record<string, unknown> = {};
+    const updates: Partial<Omit<WorkItem, "id" | "createdAt">> = {};
 
     // Category
     const category = formData.get("category") as string | null;
@@ -105,7 +96,7 @@ export async function PATCH(
           { status: 400 }
         );
       }
-      updates.category = category;
+      updates.category = category as WorkCategory;
     }
 
     // Text fields
@@ -142,49 +133,33 @@ export async function PATCH(
         );
       }
 
-      ensureUploadDir();
       const buffer = Buffer.from(await imageFile.arrayBuffer());
       const slug = `work-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-      // Card thumbnail
-      const cardPath = path.join(UPLOAD_DIR, `${slug}-card.webp`);
-      await sharp(buffer)
-        .resize({ height: 800, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 85 })
-        .toFile(cardPath);
-
-      // Full resolution
-      const fullPath = path.join(UPLOAD_DIR, `${slug}-full.webp`);
-      await sharp(buffer)
-        .resize({ height: 2000, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 88 })
-        .toFile(fullPath);
-
-      // Blur placeholder
-      const placeholderBuffer = await sharp(buffer)
-        .resize({ width: 20, fit: "inside" })
-        .webp({ quality: 40 })
-        .toBuffer();
-      const blurDataURL = `data:image/webp;base64,${placeholderBuffer.toString("base64")}`;
-
-      const cardMeta = await sharp(cardPath).metadata();
-
-      updates.imageUrl = `/media/work/uploads/${slug}-card.webp`;
-      updates.fullImageUrl = `/media/work/uploads/${slug}-full.webp`;
-      updates.blurDataURL = blurDataURL;
-      updates.cardWidth = cardMeta.width;
-      updates.cardHeight = cardMeta.height;
-
-      // Delete old uploaded files (only if they're in the uploads folder)
-      tryDeleteOldFiles(existing.imageUrl, existing.fullImageUrl);
+      const storedImage = await storeWorkImage(buffer, slug);
+      updates.imageUrl = storedImage.imageUrl;
+      updates.fullImageUrl = storedImage.fullImageUrl;
+      updates.blurDataURL = storedImage.blurDataURL;
+      updates.cardWidth = storedImage.cardWidth;
+      updates.cardHeight = storedImage.cardHeight;
+      updates.cardBlobPath = storedImage.cardBlobPath;
+      updates.fullBlobPath = storedImage.fullBlobPath;
     }
 
-    const updated = updateWorkItem(id, updates);
+    const updated = await updateWorkItem(id, updates);
     if (!updated) {
       return NextResponse.json(
         { success: false, message: "Unable to update work item." },
         { status: 500 }
       );
+    }
+
+    if (imageFile && imageFile instanceof File && imageFile.size > 0) {
+      await deleteWorkImages(existing).catch((error) => {
+        console.error(
+          "Old work image cleanup failed:",
+          error instanceof Error ? error.name : "UnknownError"
+        );
+      });
     }
 
     return NextResponse.json({ success: true, item: updated });
@@ -223,7 +198,7 @@ export async function DELETE(
       );
     }
 
-    const existing = getWorkItemById(id);
+    const existing = await getWorkItemById(id);
     if (!existing) {
       return NextResponse.json(
         { success: false, message: "Work item not found." },
@@ -231,7 +206,7 @@ export async function DELETE(
       );
     }
 
-    const deleted = deleteWorkItem(id);
+    const deleted = await deleteWorkItem(id);
     if (!deleted) {
       return NextResponse.json(
         { success: false, message: "Unable to delete work item." },
@@ -239,8 +214,12 @@ export async function DELETE(
       );
     }
 
-    // Delete associated image files (only uploaded ones)
-    tryDeleteOldFiles(existing.imageUrl, existing.fullImageUrl);
+    await deleteWorkImages(existing).catch((error) => {
+      console.error(
+        "Work image cleanup failed:",
+        error instanceof Error ? error.name : "UnknownError"
+      );
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -249,25 +228,5 @@ export async function DELETE(
       { success: false, message: "Unable to delete work item." },
       { status: 500 }
     );
-  }
-}
-
-/**
- * Safely delete old uploaded image files.
- * Only deletes files in the /uploads/ directory to avoid removing seeded images.
- */
-function tryDeleteOldFiles(imageUrl: string, fullImageUrl: string): void {
-  const publicDir = path.join(process.cwd(), "public");
-  for (const url of [imageUrl, fullImageUrl]) {
-    if (url && url.includes("/uploads/")) {
-      const filePath = path.join(publicDir, url);
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      } catch {
-        // Silently ignore deletion errors
-      }
-    }
   }
 }

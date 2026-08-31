@@ -1,7 +1,11 @@
 import "server-only";
 import fs from "fs";
-import os from "os";
 import path from "path";
+import {
+  BlobPreconditionFailedError,
+  get,
+  put,
+} from "@vercel/blob";
 import type {
   CourseBooking,
   ContactInquiry,
@@ -16,15 +20,16 @@ import type {
   SubmissionReply,
 } from "./db-schema";
 import { WORK_CATEGORIES } from "./db-schema";
+import { DEFAULT_WORK_ITEMS } from "./default-work";
 
 // ============================================
-// JSON-File Persistent Database
+// Persistent database (private Vercel Blob in production, JSON file locally)
 // ============================================
 
-const DATA_DIR = process.env.VERCEL
-  ? path.join(os.tmpdir(), "omar-hussein-website")
-  : path.join(process.cwd(), "data");
+const DATA_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "submissions.json");
+const DB_BLOB_PATH = "private/omar-hussein/submissions.json";
+const MAX_WRITE_ATTEMPTS = 3;
 
 interface DbData {
   courseBookings: CourseBooking[];
@@ -35,6 +40,12 @@ interface DbData {
   nextWorkId: number;
 }
 
+interface DbSnapshot {
+  data: DbData;
+  etag?: string;
+  remote: boolean;
+}
+
 const SUBMISSION_STATUSES: SubmissionStatus[] = [
   "New",
   "Read",
@@ -42,48 +53,115 @@ const SUBMISSION_STATUSES: SubmissionStatus[] = [
   "Archived",
 ];
 
+function createInitialData(): DbData {
+  return {
+    courseBookings: [],
+    contactInquiries: [],
+    nextCourseId: 1,
+    nextContactId: 1,
+    workItems: DEFAULT_WORK_ITEMS.map((item) => ({ ...item })),
+    nextWorkId: DEFAULT_WORK_ITEMS.length + 1,
+  };
+}
+
+function hasBlobStorage(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+}
+
 function ensureDir(): void {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 }
 
-function readDb(): DbData {
-  ensureDir();
-  if (!fs.existsSync(DB_FILE)) {
-    const initial: DbData = {
-      courseBookings: [],
-      contactInquiries: [],
-      nextCourseId: 1,
-      nextContactId: 1,
-      workItems: [],
-      nextWorkId: 1,
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
-    return initial;
-  }
-  const raw = fs.readFileSync(DB_FILE, "utf-8");
+function parseDb(raw: string, source: string): DbData {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Database file contains invalid JSON: ${DB_FILE}`, {
+    throw new Error(`Database contains invalid JSON: ${source}`, {
       cause: error,
     });
   }
 
   if (!isDbData(parsed)) {
-    throw new Error(`Database file has an invalid schema: ${DB_FILE}`);
+    throw new Error(`Database has an invalid schema: ${source}`);
   }
   normalizeSubmissionReplies(parsed);
   return parsed;
 }
 
-function writeDb(data: DbData): void {
+async function readDb(): Promise<DbSnapshot> {
+  if (hasBlobStorage()) {
+    const result = await get(DB_BLOB_PATH, {
+      access: "private",
+      useCache: false,
+    });
+    if (!result) {
+      return { data: createInitialData(), remote: true };
+    }
+    if (result.statusCode !== 200) {
+      throw new Error("Persistent database returned an unexpected response.");
+    }
+    const raw = await new Response(result.stream).text();
+    return {
+      data: parseDb(raw, DB_BLOB_PATH),
+      etag: result.blob.etag,
+      remote: true,
+    };
+  }
+
+  ensureDir();
+  if (!fs.existsSync(DB_FILE)) {
+    const initial = createInitialData();
+    fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
+    return { data: initial, remote: false };
+  }
+  const raw = fs.readFileSync(DB_FILE, "utf-8");
+  return { data: parseDb(raw, DB_FILE), remote: false };
+}
+
+async function writeDb(snapshot: DbSnapshot): Promise<void> {
+  if (snapshot.remote) {
+    await put(DB_BLOB_PATH, JSON.stringify(snapshot.data), {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: Boolean(snapshot.etag),
+      ifMatch: snapshot.etag,
+      contentType: "application/json",
+    });
+    return;
+  }
+
   ensureDir();
   const temporaryFile = `${DB_FILE}.tmp`;
-  fs.writeFileSync(temporaryFile, JSON.stringify(data, null, 2), "utf-8");
+  fs.writeFileSync(
+    temporaryFile,
+    JSON.stringify(snapshot.data, null, 2),
+    "utf-8"
+  );
   fs.renameSync(temporaryFile, DB_FILE);
+}
+
+async function mutateDb<T>(mutator: (data: DbData) => T): Promise<T> {
+  for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt++) {
+    const snapshot = await readDb();
+    const result = mutator(snapshot.data);
+    try {
+      await writeDb(snapshot);
+      return result;
+    } catch (error) {
+      if (
+        snapshot.remote &&
+        attempt < MAX_WRITE_ATTEMPTS &&
+        error instanceof BlobPreconditionFailedError
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Database update failed after multiple attempts.");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -158,7 +236,11 @@ function isWorkItem(value: unknown): value is WorkItem {
     typeof value.displayOrder === "number" &&
     typeof value.isPublished === "boolean" &&
     typeof value.createdAt === "string" &&
-    typeof value.updatedAt === "string"
+    typeof value.updatedAt === "string" &&
+    (value.cardBlobPath === undefined ||
+      typeof value.cardBlobPath === "string") &&
+    (value.fullBlobPath === undefined ||
+      typeof value.fullBlobPath === "string")
   );
 }
 
@@ -184,6 +266,24 @@ function isDbData(value: unknown): value is DbData {
     (value as Record<string, unknown>).nextWorkId = 1;
   }
 
+  // Auto-populate default portfolio catalog when workItems is empty.
+  // This handles the case where a Blob DB was created before the seeding
+  // logic was added, or when the DB was reset.
+  if (
+    Array.isArray(value.workItems) &&
+    value.workItems.length === 0 &&
+    DEFAULT_WORK_ITEMS.length > 0
+  ) {
+    (value as Record<string, unknown>).workItems = DEFAULT_WORK_ITEMS.map(
+      (item) => ({ ...item })
+    );
+    (value as Record<string, unknown>).nextWorkId =
+      DEFAULT_WORK_ITEMS.length + 1;
+    console.info(
+      `Database migration: populated ${DEFAULT_WORK_ITEMS.length} default work items.`
+    );
+  }
+
   return (
     Array.isArray(value.workItems) &&
     value.workItems.every(isWorkItem)
@@ -205,40 +305,42 @@ function normalizeSubmissionReplies(db: DbData): void {
 // Course Bookings CRUD
 // ============================================
 
-export function insertCourseBooking(input: {
+export async function insertCourseBooking(input: {
   fullName: string;
   email: string;
   phone: string;
   course: string;
   message: string;
-}): CourseBooking {
-  const db = readDb();
-  const booking: CourseBooking = {
-    id: db.nextCourseId++,
-    fullName: input.fullName,
-    email: input.email,
-    phone: input.phone,
-    course: input.course,
-    message: input.message,
-    status: "New",
-    createdAt: new Date().toISOString(),
-    replies: [],
-  };
-  db.courseBookings.push(booking);
-  writeDb(db);
-  return booking;
+}): Promise<CourseBooking> {
+  return mutateDb((db) => {
+    const booking: CourseBooking = {
+      id: db.nextCourseId++,
+      fullName: input.fullName,
+      email: input.email,
+      phone: input.phone,
+      course: input.course,
+      message: input.message,
+      status: "New",
+      createdAt: new Date().toISOString(),
+      replies: [],
+    };
+    db.courseBookings.push(booking);
+    return booking;
+  });
 }
 
-export function getCourseBookingById(id: number): CourseBooking | null {
-  const db = readDb();
-  return db.courseBookings.find((b) => b.id === id) ?? null;
+export async function getCourseBookingById(
+  id: number
+): Promise<CourseBooking | null> {
+  const { data } = await readDb();
+  return data.courseBookings.find((b) => b.id === id) ?? null;
 }
 
 // ============================================
 // Contact Inquiries CRUD
 // ============================================
 
-export function insertContactInquiry(input: {
+export async function insertContactInquiry(input: {
   name: string;
   email: string;
   phone: string;
@@ -246,40 +348,42 @@ export function insertContactInquiry(input: {
   preferredDate: string;
   budgetRange: string;
   message: string;
-}): ContactInquiry {
-  const db = readDb();
-  const inquiry: ContactInquiry = {
-    id: db.nextContactId++,
-    name: input.name,
-    email: input.email,
-    phone: input.phone,
-    shootType: input.shootType,
-    preferredDate: input.preferredDate,
-    budgetRange: input.budgetRange,
-    message: input.message,
-    status: "New",
-    createdAt: new Date().toISOString(),
-    replies: [],
-  };
-  db.contactInquiries.push(inquiry);
-  writeDb(db);
-  return inquiry;
+}): Promise<ContactInquiry> {
+  return mutateDb((db) => {
+    const inquiry: ContactInquiry = {
+      id: db.nextContactId++,
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      shootType: input.shootType,
+      preferredDate: input.preferredDate,
+      budgetRange: input.budgetRange,
+      message: input.message,
+      status: "New",
+      createdAt: new Date().toISOString(),
+      replies: [],
+    };
+    db.contactInquiries.push(inquiry);
+    return inquiry;
+  });
 }
 
-export function getContactInquiryById(id: number): ContactInquiry | null {
-  const db = readDb();
-  return db.contactInquiries.find((i) => i.id === id) ?? null;
+export async function getContactInquiryById(
+  id: number
+): Promise<ContactInquiry | null> {
+  const { data } = await readDb();
+  return data.contactInquiries.find((i) => i.id === id) ?? null;
 }
 
 // ============================================
 // List with Filter/Search/Pagination
 // ============================================
 
-export function listCourseBookings(
+export async function listCourseBookings(
   params: SubmissionListParams
-): SubmissionListResult<CourseBooking> {
-  const db = readDb();
-  let items = [...db.courseBookings];
+): Promise<SubmissionListResult<CourseBooking>> {
+  const { data } = await readDb();
+  let items = [...data.courseBookings];
 
   if (params.status) {
     items = items.filter((i) => i.status === params.status);
@@ -316,11 +420,11 @@ export function listCourseBookings(
   };
 }
 
-export function listContactInquiries(
+export async function listContactInquiries(
   params: SubmissionListParams
-): SubmissionListResult<ContactInquiry> {
-  const db = readDb();
-  let items = [...db.contactInquiries];
+): Promise<SubmissionListResult<ContactInquiry>> {
+  const { data } = await readDb();
+  let items = [...data.contactInquiries];
 
   if (params.status) {
     items = items.filter((i) => i.status === params.status);
@@ -362,77 +466,75 @@ export function listContactInquiries(
 // Update Status
 // ============================================
 
-export function updateSubmissionStatus(
+export async function updateSubmissionStatus(
   type: "course" | "contact",
   id: number,
   status: SubmissionStatus
-): boolean {
-  const db = readDb();
-
-  if (type === "course") {
-    const item = db.courseBookings.find((b) => b.id === id);
-    if (!item) return false;
-    item.status = status;
-  } else {
-    const item = db.contactInquiries.find((i) => i.id === id);
-    if (!item) return false;
-    item.status = status;
-  }
-
-  writeDb(db);
-  return true;
+): Promise<boolean> {
+  return mutateDb((db) => {
+    if (type === "course") {
+      const item = db.courseBookings.find((b) => b.id === id);
+      if (!item) return false;
+      item.status = status;
+    } else {
+      const item = db.contactInquiries.find((i) => i.id === id);
+      if (!item) return false;
+      item.status = status;
+    }
+    return true;
+  });
 }
 
-export function getSubmissionById(
+export async function getSubmissionById(
   type: "course" | "contact",
   id: number
-): CourseBooking | ContactInquiry | null {
-  if (type === "course") return getCourseBookingById(id);
-  return getContactInquiryById(id);
+): Promise<CourseBooking | ContactInquiry | null> {
+  if (type === "course") return await getCourseBookingById(id);
+  return await getContactInquiryById(id);
 }
 
-export function addSubmissionReply(
+export async function addSubmissionReply(
   type: "course" | "contact",
   id: number,
   reply: SubmissionReply
-): CourseBooking | ContactInquiry | null {
-  const db = readDb();
-  const submission =
-    type === "course"
-      ? db.courseBookings.find((booking) => booking.id === id)
-      : db.contactInquiries.find((inquiry) => inquiry.id === id);
+): Promise<CourseBooking | ContactInquiry | null> {
+  return mutateDb((db) => {
+    const submission =
+      type === "course"
+        ? db.courseBookings.find((booking) => booking.id === id)
+        : db.contactInquiries.find((inquiry) => inquiry.id === id);
 
-  if (!submission) return null;
+    if (!submission) return null;
 
-  const existingReply = submission.replies.find(
-    (existing) => existing.id === reply.id
-  );
-  if (!existingReply) {
-    submission.replies.push(reply);
-  }
-  submission.status = "Contacted";
-  writeDb(db);
-  return submission;
+    const existingReply = submission.replies.find(
+      (existing) => existing.id === reply.id
+    );
+    if (!existingReply) {
+      submission.replies.push(reply);
+    }
+    submission.status = "Contacted";
+    return submission;
+  });
 }
 
 // ============================================
 // Dashboard Counts
 // ============================================
 
-export function getDashboardCounts(): DashboardCounts {
-  const db = readDb();
+export async function getDashboardCounts(): Promise<DashboardCounts> {
+  const { data } = await readDb();
 
   return {
-    totalCourseBookings: db.courseBookings.length,
-    newCourseBookings: db.courseBookings.filter((b) => b.status === "New")
+    totalCourseBookings: data.courseBookings.length,
+    newCourseBookings: data.courseBookings.filter((b) => b.status === "New")
       .length,
-    contactedCourseBookings: db.courseBookings.filter(
+    contactedCourseBookings: data.courseBookings.filter(
       (b) => b.status === "Contacted"
     ).length,
-    totalContactInquiries: db.contactInquiries.length,
-    newContactInquiries: db.contactInquiries.filter((i) => i.status === "New")
+    totalContactInquiries: data.contactInquiries.length,
+    newContactInquiries: data.contactInquiries.filter((i) => i.status === "New")
       .length,
-    contactedContactInquiries: db.contactInquiries.filter(
+    contactedContactInquiries: data.contactInquiries.filter(
       (i) => i.status === "Contacted"
     ).length,
   };
@@ -442,7 +544,7 @@ export function getDashboardCounts(): DashboardCounts {
 // Work Items CRUD
 // ============================================
 
-export function insertWorkItem(input: {
+export async function insertWorkItem(input: {
   title: string;
   imageUrl: string;
   fullImageUrl: string;
@@ -453,39 +555,45 @@ export function insertWorkItem(input: {
   blurDataURL?: string;
   cardWidth?: number;
   cardHeight?: number;
+  cardBlobPath?: string;
+  fullBlobPath?: string;
   sourceFile?: string;
-}): WorkItem {
-  const db = readDb();
-  const now = new Date().toISOString();
-  const item: WorkItem = {
-    id: db.nextWorkId++,
-    title: input.title,
-    imageUrl: input.imageUrl,
-    fullImageUrl: input.fullImageUrl,
-    category: input.category,
-    altText: input.altText,
-    displayOrder: input.displayOrder ?? db.workItems.length + 1,
-    isPublished: input.isPublished ?? true,
-    blurDataURL: input.blurDataURL,
-    cardWidth: input.cardWidth,
-    cardHeight: input.cardHeight,
-    sourceFile: input.sourceFile,
-    createdAt: now,
-    updatedAt: now,
-  };
-  db.workItems.push(item);
-  writeDb(db);
-  return item;
+}): Promise<WorkItem> {
+  return mutateDb((db) => {
+    const now = new Date().toISOString();
+    const item: WorkItem = {
+      id: db.nextWorkId++,
+      title: input.title,
+      imageUrl: input.imageUrl,
+      fullImageUrl: input.fullImageUrl,
+      category: input.category,
+      altText: input.altText,
+      displayOrder: input.displayOrder ?? db.workItems.length + 1,
+      isPublished: input.isPublished ?? true,
+      blurDataURL: input.blurDataURL,
+      cardWidth: input.cardWidth,
+      cardHeight: input.cardHeight,
+      cardBlobPath: input.cardBlobPath,
+      fullBlobPath: input.fullBlobPath,
+      sourceFile: input.sourceFile,
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.workItems.push(item);
+    return item;
+  });
 }
 
-export function getWorkItemById(id: number): WorkItem | null {
-  const db = readDb();
-  return db.workItems.find((w) => w.id === id) ?? null;
+export async function getWorkItemById(id: number): Promise<WorkItem | null> {
+  const { data } = await readDb();
+  return data.workItems.find((w) => w.id === id) ?? null;
 }
 
-export function listWorkItems(params: WorkListParams): WorkListResult {
-  const db = readDb();
-  let items = [...db.workItems];
+export async function listWorkItems(
+  params: WorkListParams
+): Promise<WorkListResult> {
+  const { data } = await readDb();
+  let items = [...data.workItems];
 
   if (params.category) {
     items = items.filter((w) => w.category === params.category);
@@ -521,9 +629,9 @@ export function listWorkItems(params: WorkListParams): WorkListResult {
   };
 }
 
-export function getPublishedWorkItems(): WorkItem[] {
-  const db = readDb();
-  return db.workItems
+export async function getPublishedWorkItems(): Promise<WorkItem[]> {
+  const { data } = await readDb();
+  return data.workItems
     .filter((w) => w.isPublished)
     .sort((a, b) => {
       if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
@@ -531,47 +639,60 @@ export function getPublishedWorkItems(): WorkItem[] {
     });
 }
 
-export function updateWorkItem(
+export async function updateWorkItem(
   id: number,
   updates: Partial<Omit<WorkItem, "id" | "createdAt">>
-): WorkItem | null {
-  const db = readDb();
-  const item = db.workItems.find((w) => w.id === id);
-  if (!item) return null;
+): Promise<WorkItem | null> {
+  return mutateDb((db) => {
+    const item = db.workItems.find((w) => w.id === id);
+    if (!item) return null;
 
-  if (updates.title !== undefined) item.title = updates.title;
-  if (updates.imageUrl !== undefined) item.imageUrl = updates.imageUrl;
-  if (updates.fullImageUrl !== undefined) item.fullImageUrl = updates.fullImageUrl;
-  if (updates.category !== undefined) item.category = updates.category;
-  if (updates.altText !== undefined) item.altText = updates.altText;
-  if (updates.displayOrder !== undefined) item.displayOrder = updates.displayOrder;
-  if (updates.isPublished !== undefined) item.isPublished = updates.isPublished;
-  if (updates.blurDataURL !== undefined) item.blurDataURL = updates.blurDataURL;
-  if (updates.cardWidth !== undefined) item.cardWidth = updates.cardWidth;
-  if (updates.cardHeight !== undefined) item.cardHeight = updates.cardHeight;
-  item.updatedAt = new Date().toISOString();
-
-  writeDb(db);
-  return item;
+    if (updates.title !== undefined) item.title = updates.title;
+    if (updates.imageUrl !== undefined) item.imageUrl = updates.imageUrl;
+    if (updates.fullImageUrl !== undefined)
+      item.fullImageUrl = updates.fullImageUrl;
+    if (updates.category !== undefined) item.category = updates.category;
+    if (updates.altText !== undefined) item.altText = updates.altText;
+    if (updates.displayOrder !== undefined)
+      item.displayOrder = updates.displayOrder;
+    if (updates.isPublished !== undefined)
+      item.isPublished = updates.isPublished;
+    if (updates.blurDataURL !== undefined)
+      item.blurDataURL = updates.blurDataURL;
+    if (updates.cardWidth !== undefined) item.cardWidth = updates.cardWidth;
+    if (updates.cardHeight !== undefined) item.cardHeight = updates.cardHeight;
+    if (updates.cardBlobPath !== undefined)
+      item.cardBlobPath = updates.cardBlobPath;
+    if (updates.fullBlobPath !== undefined)
+      item.fullBlobPath = updates.fullBlobPath;
+    item.updatedAt = new Date().toISOString();
+    return item;
+  });
 }
 
-export function deleteWorkItem(id: number): boolean {
-  const db = readDb();
-  const index = db.workItems.findIndex((w) => w.id === id);
-  if (index === -1) return false;
-  db.workItems.splice(index, 1);
-  writeDb(db);
-  return true;
+export async function deleteWorkItem(id: number): Promise<boolean> {
+  return mutateDb((db) => {
+    const index = db.workItems.findIndex((w) => w.id === id);
+    if (index === -1) return false;
+    db.workItems.splice(index, 1);
+    return true;
+  });
 }
 
-export function getWorkItemBySourceFile(sourceFile: string): WorkItem | null {
-  const db = readDb();
-  return db.workItems.find((w) => w.sourceFile === sourceFile) ?? null;
+export async function getWorkItemBySourceFile(
+  sourceFile: string
+): Promise<WorkItem | null> {
+  const { data } = await readDb();
+  return data.workItems.find((w) => w.sourceFile === sourceFile) ?? null;
 }
 
-export function getWorkCounts(): { total: number; published: number; draft: number } {
-  const db = readDb();
-  const total = db.workItems.length;
-  const published = db.workItems.filter((w) => w.isPublished).length;
+export async function getWorkCounts(): Promise<{
+  total: number;
+  published: number;
+  draft: number;
+}> {
+  const { data } = await readDb();
+  const total = data.workItems.length;
+  const published = data.workItems.filter((w) => w.isPublished).length;
   return { total, published, draft: total - published };
 }

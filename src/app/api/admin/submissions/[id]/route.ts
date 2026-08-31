@@ -61,7 +61,7 @@ export async function GET(
     );
   }
 
-  const submission = getSubmissionById(type, id);
+  const submission = await getSubmissionById(type, id);
   if (!submission) {
     return NextResponse.json(
       { success: false, message: "Submission not found." },
@@ -107,7 +107,7 @@ export async function PATCH(
     );
   }
 
-  const updated = updateSubmissionStatus(type, id, status);
+  const updated = await updateSubmissionStatus(type, id, status);
   if (!updated) {
     return NextResponse.json(
       { success: false, message: "Submission not found." },

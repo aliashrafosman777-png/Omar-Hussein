@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     let inquiryReference = `fallback-${crypto.randomUUID()}`;
     let stored = false;
     try {
-      const inquiry = insertContactInquiry({
+      const inquiry = await insertContactInquiry({
         name,
         email,
         phone,
@@ -118,7 +118,9 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       console.error(
         "Contact storage is unavailable; attempting email delivery:",
-        error instanceof Error ? error.name : "UnknownError"
+        error instanceof Error ? error.message : "UnknownError",
+        "| BLOB_READ_WRITE_TOKEN set:",
+        Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim())
       );
     }
 

@@ -73,11 +73,12 @@ export async function GET(request: NextRequest) {
       limit: 20,
     };
 
-    const data =
+    const [data, counts] = await Promise.all([
       type === "course"
         ? listCourseBookings(params)
-        : listContactInquiries(params);
-    const counts = getDashboardCounts();
+        : listContactInquiries(params),
+      getDashboardCounts(),
+    ]);
 
     return NextResponse.json(
       { success: true, ...data, counts },

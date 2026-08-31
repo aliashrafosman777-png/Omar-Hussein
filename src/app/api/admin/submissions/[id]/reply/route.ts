@@ -84,7 +84,7 @@ export async function POST(
       );
     }
 
-    const submission = getSubmissionById(type, id);
+    const submission = await getSubmissionById(type, id);
     if (!submission) {
       return NextResponse.json(
         { success: false, message: "Submission not found." },
@@ -103,7 +103,7 @@ export async function POST(
       idempotencyKey: `reply-${type}-${id}-${requestId}`,
     });
 
-    const updated = addSubmissionReply(type, id, {
+    const updated = await addSubmissionReply(type, id, {
       id: requestId,
       subject,
       message,
@@ -123,17 +123,31 @@ export async function POST(
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
+    const errorName =
+      error instanceof Error ? error.name : "UnknownError";
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
     console.error(
       "Admin reply failed:",
-      error instanceof Error ? error.name : "UnknownError"
+      errorName,
+      errorMessage,
+      "| CONTACT_EMAIL_PROVIDER:",
+      process.env.CONTACT_EMAIL_PROVIDER || "(not set)",
+      "| RESEND_API_KEY set:",
+      Boolean(process.env.RESEND_API_KEY?.trim()),
+      "| RESEND_FROM_EMAIL set:",
+      Boolean(process.env.RESEND_FROM_EMAIL?.trim())
     );
+
+    const isConfigError = errorName === "EmailConfigurationError";
     return NextResponse.json(
       {
         success: false,
-        message:
-          "The email could not be sent. Check the email configuration and try again.",
+        message: isConfigError
+          ? `Email is not configured: ${errorMessage}`
+          : "The email could not be sent. Check the email configuration and try again.",
       },
-      { status: 502 }
+      { status: isConfigError ? 500 : 502 }
     );
   }
 }

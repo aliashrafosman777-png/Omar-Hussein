@@ -89,6 +89,8 @@ export interface WorkItem {
   blurDataURL?: string;
   cardWidth?: number;
   cardHeight?: number;
+  cardBlobPath?: string;   // private Vercel Blob pathname
+  fullBlobPath?: string;   // private Vercel Blob pathname
   sourceFile?: string;     // original filename (for seed idempotency)
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601

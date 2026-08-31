@@ -10,7 +10,7 @@ export async function GET() {
   try {
     let items = DEFAULT_WORK_ITEMS;
     try {
-      const managedItems = getPublishedWorkItems();
+      const managedItems = await getPublishedWorkItems();
       if (managedItems.length > 0) items = managedItems;
     } catch (error) {
       console.error(

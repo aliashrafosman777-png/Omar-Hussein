@@ -1,4 +1,16 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Omar Hussein Photography
+
+Next.js portfolio site with contact and course forms, Resend notifications,
+and an authenticated admin dashboard.
+
+## Production storage
+
+Create a **private Vercel Blob** store and connect it to the Vercel project.
+Vercel will add `BLOB_READ_WRITE_TOKEN`. The application uses that store for
+durable submissions, reply history, portfolio metadata, and admin-uploaded
+images. Without the token, development falls back to the local `data` folder.
+
+The complete environment variable list is documented in `.env.example`.
 
 ## Getting Started
 

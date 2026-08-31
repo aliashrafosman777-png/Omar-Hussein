@@ -3,19 +3,11 @@ import { verifySession } from "@/lib/session";
 import { listWorkItems, insertWorkItem, getWorkCounts } from "@/lib/db";
 import { WORK_CATEGORIES } from "@/lib/db-schema";
 import type { WorkCategory } from "@/lib/db-schema";
-import sharp from "sharp";
-import fs from "fs";
-import path from "path";
+import { storeWorkImage } from "@/lib/work-images";
+import { DEFAULT_WORK_ITEMS } from "@/lib/default-work";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "media", "work", "uploads");
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB
-
-function ensureUploadDir(): void {
-  if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
-}
 
 /**
  * GET /api/admin/work
@@ -53,14 +45,36 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const data = listWorkItems({
-      category: categoryValue as WorkCategory | undefined,
-      search: searchValue ? searchValue.slice(0, 200) : undefined,
-      page: Number(pageValue),
-      limit: 50,
-    });
+    let [data, counts] = await Promise.all([
+      listWorkItems({
+        category: categoryValue as WorkCategory | undefined,
+        search: searchValue ? searchValue.slice(0, 200) : undefined,
+        page: Number(pageValue),
+        limit: 50,
+      }),
+      getWorkCounts(),
+    ]);
 
-    const counts = getWorkCounts();
+    // Fallback: if the database has no work items at all, show the default
+    // portfolio catalog so the admin dashboard is never empty on first visit.
+    if (
+      counts.total === 0 &&
+      !categoryValue &&
+      !searchValue &&
+      DEFAULT_WORK_ITEMS.length > 0
+    ) {
+      data = {
+        items: DEFAULT_WORK_ITEMS,
+        total: DEFAULT_WORK_ITEMS.length,
+        page: 1,
+        totalPages: 1,
+      };
+      counts = {
+        total: DEFAULT_WORK_ITEMS.length,
+        published: DEFAULT_WORK_ITEMS.filter((w) => w.isPublished).length,
+        draft: DEFAULT_WORK_ITEMS.filter((w) => !w.isPublished).length,
+      };
+    }
 
     return NextResponse.json(
       { success: true, ...data, counts },
@@ -131,49 +145,24 @@ export async function POST(request: NextRequest) {
     const displayOrder = Number(formData.get("displayOrder")) || 0;
     const isPublished = formData.get("isPublished") !== "false";
 
-    // Process image
-    ensureUploadDir();
+    // Process and persist image
     const buffer = Buffer.from(await imageFile.arrayBuffer());
     const slug = `work-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const storedImage = await storeWorkImage(buffer, slug);
 
-    // Card thumbnail (800px)
-    const cardPath = path.join(UPLOAD_DIR, `${slug}-card.webp`);
-    await sharp(buffer)
-      .resize({ height: 800, fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 85 })
-      .toFile(cardPath);
-
-    // Full resolution (2000px)
-    const fullPath = path.join(UPLOAD_DIR, `${slug}-full.webp`);
-    await sharp(buffer)
-      .resize({ height: 2000, fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 88 })
-      .toFile(fullPath);
-
-    // Blur placeholder
-    const placeholderBuffer = await sharp(buffer)
-      .resize({ width: 20, fit: "inside" })
-      .webp({ quality: 40 })
-      .toBuffer();
-    const blurDataURL = `data:image/webp;base64,${placeholderBuffer.toString("base64")}`;
-
-    // Get card dimensions
-    const cardMeta = await sharp(cardPath).metadata();
-
-    const imageUrl = `/media/work/uploads/${slug}-card.webp`;
-    const fullImageUrl = `/media/work/uploads/${slug}-full.webp`;
-
-    const item = insertWorkItem({
+    const item = await insertWorkItem({
       title,
-      imageUrl,
-      fullImageUrl,
+      imageUrl: storedImage.imageUrl,
+      fullImageUrl: storedImage.fullImageUrl,
       category: category as WorkCategory,
       altText,
       displayOrder,
       isPublished,
-      blurDataURL,
-      cardWidth: cardMeta.width,
-      cardHeight: cardMeta.height,
+      blurDataURL: storedImage.blurDataURL,
+      cardWidth: storedImage.cardWidth,
+      cardHeight: storedImage.cardHeight,
+      cardBlobPath: storedImage.cardBlobPath,
+      fullBlobPath: storedImage.fullBlobPath,
     });
 
     return NextResponse.json({ success: true, item }, { status: 201 });
